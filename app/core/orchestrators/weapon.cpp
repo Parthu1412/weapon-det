@@ -1,5 +1,6 @@
 #include "zmq_io.hpp"
 #include "../../config.hpp"
+#include "../../utils/aws.hpp"
 #include "../../utils/logger.hpp"
 #include "../services/weapon_service.hpp"
 #include <chrono>
@@ -36,6 +37,17 @@ int main() {
         push.set(zmq::sockopt::sndhwm, 300);
         app::utils::Logger::info("Bound to port " + std::to_string(cfg.zmq_weapon_msg_gen_port) +
             " for sending to msg gen orchestrator");
+
+        app::utils::AwsApiManager aws_life;
+        app::utils::S3Client s3_models;
+        if (!cfg.weapon_model_s3_key.empty()) {
+            try {
+                s3_models.download_from_s3(cfg.weapon_model_path, cfg.weapon_model_s3_key);
+            } catch (const std::exception& e) {
+                app::utils::Logger::error(std::string("[WeaponOrche] S3 weapon model download failed: ") + e.what());
+                return 1;
+            }
+        }
 
         app::core::services::WeaponService weapon_svc;
 

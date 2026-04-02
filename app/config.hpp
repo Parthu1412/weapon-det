@@ -63,17 +63,26 @@ public:
     std::string kafka_topic = "weapon_topic";
     std::string kafka_aws_region;
 
+    /** Loaded from RABBITMQ_*_PRODUCER with fallback to RABBITMQ_* (matches weapon Python config). */
     std::string rabbitmq_user;
     std::string rabbitmq_host;
     int rabbitmq_port = 5671;
     std::string rabbitmq_pass;
     bool rabbitmq_use_ssl = true;
+    /** SO_RCVTIMEO/SO_SNDTIMEO in seconds; env RABBITMQ_SOCKET_TIMEOUT (default 10), like pika socket_timeout. */
+    int rabbitmq_socket_timeout_sec = 10;
 
     bool use_generic_queue = true;
     std::string generic_queue_name = "weapon_queue";
 
     std::string zmq_camera_to_weapon_host = "127.0.0.1";
     int zmq_camera_to_weapon_port = 5558;
+    /** PersonDetection process binds PULL here; camera_reader PUSHes RTSP/video frames (Python Queue IPC). */
+    int zmq_person_frame_port = 5560;
+    /** Empty = sibling binary `person_detection` next to this executable. */
+    std::string person_detection_exe;
+    /** Seconds to wait after spawning person_detection (model load + ZMQ bind). */
+    int person_spawn_grace_sec = 15;
     std::string zmq_weapon_to_output_host = "127.0.0.1";
     int zmq_weapon_msg_gen_port = 5559;
 

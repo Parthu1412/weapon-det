@@ -29,6 +29,39 @@ find_package(onnxruntime CONFIG REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SAC REQUIRED IMPORTED_TARGET libSimpleAmqpClient)
 
+# ==============================================================================
+# System libcurl workaround (same as fall-cpp)
+# Ubuntu's system OpenCV may pull GDAL/NetCDF built against system libcurl4
+# versioned symbols (CURL_OPENSSL_4). vcpkg libcurl lacks those versioned
+# symbols → unresolved symbols at link. Fix: prefer system libcurl for any
+# target that also links OpenCV.
+# ==============================================================================
+set(WEAPON_CURL_FOR_OPENCV CURL::libcurl)
+if(UNIX AND NOT APPLE)
+    find_library(WEAPON_SYSTEM_CURL NAMES curl
+        PATHS /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib
+        NO_DEFAULT_PATH NO_CMAKE_PATH NO_CMAKE_ENVIRONMENT_PATH
+        NO_CMAKE_INSTALL_PREFIX NO_CMAKE_SYSTEM_PATH)
+    if(NOT WEAPON_SYSTEM_CURL OR WEAPON_SYSTEM_CURL MATCHES "vcpkg_installed")
+        unset(WEAPON_SYSTEM_CURL CACHE)
+        foreach(_c IN ITEMS
+                /usr/lib/x86_64-linux-gnu/libcurl.so.4
+                /lib/x86_64-linux-gnu/libcurl.so.4
+                /usr/lib64/libcurl.so.4)
+            if(EXISTS "${_c}")
+                set(WEAPON_SYSTEM_CURL "${_c}" CACHE FILEPATH "" FORCE)
+                break()
+            endif()
+        endforeach()
+    endif()
+    if(WEAPON_SYSTEM_CURL AND NOT WEAPON_SYSTEM_CURL MATCHES "vcpkg_installed")
+        add_library(weapon_system_curl SHARED IMPORTED)
+        set_target_properties(weapon_system_curl PROPERTIES IMPORTED_LOCATION "${WEAPON_SYSTEM_CURL}")
+        set(WEAPON_CURL_FOR_OPENCV weapon_system_curl)
+        message(STATUS "OpenCV: using system libcurl (${WEAPON_SYSTEM_CURL}) for GDAL/NetCDF symbol versions")
+    endif()
+endif()
+
 if(DEFINED OpenCV_LIBS)
     set(WEAPON_OPENCV_DEPS ${OpenCV_LIBS})
 else()
@@ -45,34 +78,50 @@ add_executable(camera_reader
     app/core/orchestrators/camera.cpp
     ${COMMON_SRC}
     app/utils/rtsp_camera.cpp
-    app/core/inferences/person.cpp
 )
 target_include_directories(camera_reader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(camera_reader PRIVATE
-    ${TORCH_LIBRARIES}
     ${WEAPON_OPENCV_DEPS}
     libzmq
     nlohmann_json::nlohmann_json
     redis++::redis++
-    CURL::libcurl
+    ${WEAPON_CURL_FOR_OPENCV}
+)
+
+add_executable(person_detection
+    app/core/orchestrators/person_detection_main.cpp
+    ${COMMON_SRC}
+    app/core/inferences/person.cpp
+    app/utils/aws.cpp
+)
+target_include_directories(person_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(person_detection PRIVATE
+    ${TORCH_LIBRARIES}
+    ${WEAPON_OPENCV_DEPS}
+    libzmq
+    nlohmann_json::nlohmann_json
+    aws-cpp-sdk-s3
+    aws-cpp-sdk-core
+    ${WEAPON_CURL_FOR_OPENCV}
 )
 
 add_executable(weapon_inference
     app/core/orchestrators/weapon.cpp
     ${COMMON_SRC}
-    app/core/inferences/person.cpp
     app/core/inferences/weapon.cpp
     app/core/services/weapon_service.cpp
-    app/core/services/bbox_utils.cpp
+    app/utils/bbox_utils.cpp
+    app/utils/aws.cpp
 )
 target_include_directories(weapon_inference PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(weapon_inference PRIVATE
-    ${TORCH_LIBRARIES}
     ${WEAPON_OPENCV_DEPS}
     libzmq
     nlohmann_json::nlohmann_json
-    CURL::libcurl
+    aws-cpp-sdk-s3
+    aws-cpp-sdk-core
     onnxruntime::onnxruntime
+    ${WEAPON_CURL_FOR_OPENCV}
 )
 
 add_executable(msg_gen
@@ -91,5 +140,5 @@ target_link_libraries(msg_gen PRIVATE
     aws-cpp-sdk-core
     RdKafka::rdkafka++
     PkgConfig::SAC
-    CURL::libcurl
+    ${WEAPON_CURL_FOR_OPENCV}
 )

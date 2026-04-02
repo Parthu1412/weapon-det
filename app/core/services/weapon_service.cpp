@@ -1,5 +1,5 @@
 #include "weapon_service.hpp"
-#include "bbox_utils.hpp"
+#include "../../utils/bbox_utils.hpp"
 #include "../../config.hpp"
 #include "../../utils/logger.hpp"
 #include <opencv2/imgproc.hpp>
@@ -35,13 +35,15 @@ std::optional<WeaponProcessResult> WeaponService::process_frame(
     std::vector<app::utils::PersonDetection> matched_persons;
 
     if (person_detections && !person_detections->empty()) {
-        auto person_boxes = BBoxUtils::extract_person_boxes(*person_detections, cfg.person_bbox_expansion_percent);
+        auto person_boxes = app::utils::BBoxUtils::extract_person_boxes(
+            *person_detections, cfg.person_bbox_expansion_percent);
         std::vector<std::vector<float>> wfloat;
         for (const auto& b : weapon_boxes) {
             wfloat.push_back({static_cast<float>(b[0]), static_cast<float>(b[1]),
                               static_cast<float>(b[2]), static_cast<float>(b[3])});
         }
-        auto [has_match, matches] = BBoxUtils::has_iou_match(person_boxes, wfloat, cfg.iou_threshold);
+        auto [has_match, matches] =
+            app::utils::BBoxUtils::has_iou_match(person_boxes, wfloat, cfg.iou_threshold);
         if (!has_match) {
             app::utils::Logger::info("Weapons detected but no IOU match with persons. Skipping.");
             return std::nullopt;

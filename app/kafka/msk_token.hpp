@@ -1,3 +1,7 @@
+// Interface for the MSK IAM token provider.
+// Declares MskToken::generate(), which fetches an AWS SigV4-signed
+// OAUTHBEARER token string for use with librdkafka SASL authentication.
+
 #pragma once
 
 #include <string>

@@ -1,6 +1,11 @@
 #include "bbox_utils.hpp"
+#include "logger.hpp"
 
-namespace app::core::services {
+#include <algorithm>
+#include <sstream>
+#include <string>
+
+namespace app::utils {
 
 float BBoxUtils::calculate_iou(const std::vector<float>& box1, const std::vector<float>& box2) {
     if (box1.size() < 4 || box2.size() < 4) return 0.f;
@@ -50,18 +55,32 @@ std::vector<float> BBoxUtils::expand_bbox(const std::vector<float>& box, float e
 }
 
 std::vector<std::vector<float>> BBoxUtils::extract_person_boxes(
-    const std::vector<app::utils::PersonDetection>& person_detections,
+    const std::vector<PersonDetection>& person_detections,
     float expansion_percent)
 {
     std::vector<std::vector<float>> out;
     for (const auto& d : person_detections) {
-        if (d.box.size() != 4) continue;
+        if (d.box.size() != 4) {
+            std::ostringstream box_str;
+            box_str << "[";
+            for (std::size_t i = 0; i < d.box.size(); ++i) {
+                if (i) box_str << ",";
+                box_str << d.box[i];
+            }
+            box_str << "]";
+            Logger::warning(std::string("[BBoxUtils] Invalid person bounding box format expected_values=4 "
+                                        "got_values=") +
+                            std::to_string(d.box.size()) + " box=" + box_str.str());
+            continue;
+        }
         std::vector<float> b = d.box;
         if (expansion_percent > 0.f)
             b = expand_bbox(b, expansion_percent);
         out.push_back(std::move(b));
     }
+    if (out.empty())
+        Logger::debug("[BBoxUtils] No valid person boxes extracted from detections");
     return out;
 }
 
-}  // namespace app::core::services
+}  // namespace app::utils

@@ -140,12 +140,16 @@ void AppConfig::load() {
     rabbitmq_user = getenv_str("RABBITMQ_USER_PRODUCER", getenv_str("RABBITMQ_USER", ""));
     rabbitmq_pass = getenv_str("RABBITMQ_PASS_PRODUCER", getenv_str("RABBITMQ_PASS", ""));
     rabbitmq_use_ssl = getenv_bool("RABBITMQ_USE_SSL", true);
+    rabbitmq_socket_timeout_sec = getenv_int("RABBITMQ_SOCKET_TIMEOUT", 10);
 
     use_generic_queue = getenv_bool("USE_GENERIC_QUEUE", true);
     generic_queue_name = getenv_str("GENERIC_QUEUE_NAME", "weapon_queue");
 
     zmq_camera_to_weapon_host = getenv_str("ZMQ_CAMERA_TO_WEAPON_HOST", "127.0.0.1");
     zmq_camera_to_weapon_port = getenv_int("ZMQ_CAMERA_TO_WEAPON_PORT", 5558);
+    zmq_person_frame_port = getenv_int("ZMQ_PERSON_FRAME_PORT", 5560);
+    person_detection_exe = getenv_str("PERSON_DETECTION_EXE", "");
+    person_spawn_grace_sec = getenv_int("PERSON_SPAWN_GRACE_SEC", 15);
     zmq_weapon_to_output_host = getenv_str("ZMQ_WEAPON_TO_OUTPUT_HOST", "127.0.0.1");
     zmq_weapon_msg_gen_port = getenv_int("ZMQ_WEAPON_TO_OUTPUT_PORT", 5559);
 
