@@ -1,6 +1,7 @@
 #include "weapon.hpp"
 
 #include <opencv2/imgproc.hpp>
+#include <opencv2/dnn.hpp>
 #include <torch/torch.h>
 #include <cmath>
 #include <chrono>
@@ -18,9 +19,10 @@ static constexpr float kStd[3]  = {0.229f, 0.224f, 0.225f};
 // --- WeaponInference ---------------------------------------------------------
 
 WeaponInference::WeaponInference(const std::string& onnx_path, float conf_thresh,
-                                 int input_h, int input_w)
+                                 int input_h, int input_w, float nms_iou_thresh)
     : env_(ORT_LOGGING_LEVEL_WARNING, "rfdetr")
     , conf_thresh_(conf_thresh)
+    , nms_iou_thresh_(nms_iou_thresh)
     , input_h_(input_h)
     , input_w_(input_w)
 {
@@ -52,6 +54,8 @@ WeaponInference::WeaponInference(const std::string& onnx_path, float conf_thresh
             app::utils::Logger::info("[WeaponInference] CUDA unavailable; running on CPU.");
         }
 
+        app::utils::Logger::info("[WeaponInference] Loading ONNX session from " + onnx_path +
+            " (first CUDA run may take 1-5 min for kernel compilation, please wait...)");
         session_.emplace(env_, onnx_path.c_str(), opts);
         app::utils::Logger::info("[WeaponInference] Loaded: " + onnx_path);
 
@@ -61,12 +65,12 @@ WeaponInference::WeaponInference(const std::string& onnx_path, float conf_thresh
         input_shape_ = {1, 3, input_h_, input_w_};
 
         // --- OPTIMIZATION 2: Warmup Phase ---
-        app::utils::Logger::info("[WeaponInference] Warming up model with 100 dummy frames...");
+        app::utils::Logger::debug("[WeaponInference] Warming up model with 100 dummy frames...");
         cv::Mat dummy(input_h_, input_w_, CV_8UC3, cv::Scalar(114, 114, 114));
         for (int i = 0; i < 100; ++i) {
             detect(dummy); 
         }
-        app::utils::Logger::info("[WeaponInference] Warmup complete.");
+        app::utils::Logger::debug("[WeaponInference] Warmup complete.");
 
     } catch (const Ort::Exception& e) {
         app::utils::Logger::error(std::string("[WeaponInference] Failed to load model: ") + e.what());
@@ -104,8 +108,6 @@ void WeaponInference::preprocess_(const cv::Mat& bgr) {
 std::pair<std::vector<std::vector<int>>, float> WeaponInference::detect(const cv::Mat& frame) {
     if (frame.empty()) return {{}, 0.0f};
 
-    const bool log_timing = (std::getenv("INFERENCE_TIMING_BREAKDOWN") != nullptr);
-
     try {
         // --- Preprocess ---
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -137,60 +139,115 @@ std::pair<std::vector<std::vector<int>>, float> WeaponInference::detect(const cv
         const float* dets_ptr   = outputs[0].GetTensorData<float>();
         const float* labels_ptr = outputs[1].GetTensorData<float>();
 
-        std::vector<std::vector<int>> boxes;
+        std::vector<cv::Rect2d> raw_boxes;
+        std::vector<float> scores;
         float max_conf = 0.0f;
 
         const float orig_w = static_cast<float>(frame.cols);
         const float orig_h = static_cast<float>(frame.rows);
 
-        for (int64_t i = 0; i < num_queries; ++i) {
+       for (int64_t i = 0; i < num_queries; ++i) {
             float best_score = 0.f;
-            
+
             // Labels are raw logits — apply sigmoid per class
             for (int64_t c = 0; c < num_classes; ++c) {
                 const float logit = labels_ptr[i * num_classes + c];
                 const float score = 1.0f / (1.0f + std::exp(-logit));
-                if (score > best_score) {
-                    best_score = score;
-                }
+                if (score > best_score) best_score = score;
             }
-            
+
             if (best_score < conf_thresh_) continue;
 
-            // Dets: normalized [cx, cy, w, h] in [0, 1] — convert to pixel xyxy
+            // REVERTED: DETR natively outputs normalized [cx, cy, w, h]
             const float cx = dets_ptr[i * 4 + 0];
             const float cy = dets_ptr[i * 4 + 1];
             const float bw = dets_ptr[i * 4 + 2];
             const float bh = dets_ptr[i * 4 + 3];
 
-            float x1 = (cx - bw * 0.5f) * orig_w;
-            float y1 = (cy - bh * 0.5f) * orig_h;
-            float x2 = (cx + bw * 0.5f) * orig_w;
-            float y2 = (cy + bh * 0.5f) * orig_h;
+            // Convert to top-left pixel coordinates
+            const float x1 = (cx - bw * 0.5f) * orig_w;
+            const float y1 = (cy - bh * 0.5f) * orig_h;
+            const float pw = bw * orig_w;
+            const float ph = bh * orig_h;
 
-            // Clamp to image bounds and convert to int
-            const float fw = orig_w - 1.0f;
-            const float fh = orig_h - 1.0f;
-            
-            int ix1 = static_cast<int>(std::lround(std::max(0.f, std::min(x1, fw))));
-            int iy1 = static_cast<int>(std::lround(std::max(0.f, std::min(y1, fh))));
-            int ix2 = static_cast<int>(std::lround(std::max(0.f, std::min(x2, fw))));
-            int iy2 = static_cast<int>(std::lround(std::max(0.f, std::min(y2, fh))));
-
-            boxes.push_back({ix1, iy1, ix2, iy2});
+            raw_boxes.emplace_back(x1, y1, pw, ph);  // cv::Rect2d: x, y, width, height
+            scores.push_back(best_score);
             if (best_score > max_conf) max_conf = best_score;
+        }
+
+        // --- NMS with containment suppression (mirrors rfdetr Python post-processing) ---
+        // Standard IoU NMS misses cases where a small box is fully inside a large one
+        // (IoU is low because union is large). We additionally suppress if one box
+        // contains >= 80% of the smaller box's area.
+        std::vector<int> nms_indices;
+        if (!raw_boxes.empty()) {
+            // Step 1: standard IoU NMS
+            cv::dnn::NMSBoxes(raw_boxes, scores, conf_thresh_, nms_iou_thresh_, nms_indices);
+
+            // Step 2: containment filtering — for each pair of surviving boxes,
+            // if >= 80% of the SMALLER box's area is covered by the other box,
+            // suppress the LOWER-SCORED one (regardless of which is smaller/larger).
+            // This handles the case where the smaller box has higher confidence,
+            // which the old one-directional check missed.
+            std::vector<bool> suppressed2(nms_indices.size(), false);
+            for (int i = 0; i < static_cast<int>(nms_indices.size()); ++i) {
+                if (suppressed2[i]) continue;
+                const auto& bi = raw_boxes[static_cast<size_t>(nms_indices[i])];
+                const float area_i = static_cast<float>(bi.width * bi.height);
+                for (int j = i + 1; j < static_cast<int>(nms_indices.size()); ++j) {
+                    if (suppressed2[j]) continue;
+                    const auto& bj = raw_boxes[static_cast<size_t>(nms_indices[j])];
+                    const float area_j = static_cast<float>(bj.width * bj.height);
+                    const float ix1 = std::max((float)bi.x, (float)bj.x);
+                    const float iy1 = std::max((float)bi.y, (float)bj.y);
+                    const float ix2 = std::min((float)(bi.x + bi.width),  (float)(bj.x + bj.width));
+                    const float iy2 = std::min((float)(bi.y + bi.height), (float)(bj.y + bj.height));
+                    if (ix2 <= ix1 || iy2 <= iy1) continue;
+                    const float inter = (ix2 - ix1) * (iy2 - iy1);
+                    const float min_area = std::min(area_i, area_j);
+                    // If >= 80% of the smaller box is inside the other, suppress the lower-scored one
+                    if (min_area > 0.f && (inter / min_area) >= 0.8f) {
+                        if (scores[static_cast<size_t>(nms_indices[i])] >= scores[static_cast<size_t>(nms_indices[j])])
+                            suppressed2[j] = true;
+                        else
+                            suppressed2[i] = true;
+                    }
+                }
+            }
+            std::vector<int> final_indices;
+            final_indices.reserve(nms_indices.size());
+            for (int i = 0; i < static_cast<int>(nms_indices.size()); ++i) {
+                if (!suppressed2[i]) final_indices.push_back(nms_indices[i]);
+            }
+            nms_indices = std::move(final_indices);
+        }
+
+        const float fw = orig_w - 1.0f;
+        const float fh = orig_h - 1.0f;
+        std::vector<std::vector<int>> boxes;
+        boxes.reserve(nms_indices.size());
+        
+        for (int idx : nms_indices) {
+            const auto& r = raw_boxes[static_cast<size_t>(idx)];
+            int ix1 = static_cast<int>(std::lround(std::max(0.f, std::min((float)r.x,           fw))));
+            int iy1 = static_cast<int>(std::lround(std::max(0.f, std::min((float)r.y,           fh))));
+            int ix2 = static_cast<int>(std::lround(std::max(0.f, std::min((float)(r.x + r.width),  fw))));
+            int iy2 = static_cast<int>(std::lround(std::max(0.f, std::min((float)(r.y + r.height), fh))));
+            
+            boxes.push_back({ix1, iy1, ix2, iy2});
         }
         
         auto t3 = std::chrono::high_resolution_clock::now();
 
-        if (log_timing) {
-            auto ms = [](auto a, auto b) {
-                return std::chrono::duration<double, std::milli>(b - a).count();
-            };
-            app::utils::Logger::info("[WeaponInference] preprocess=" + std::to_string(ms(t0, t1)) +
-                                     "ms  infer=" + std::to_string(ms(t1, t2)) +
-                                     "ms  postprocess=" + std::to_string(ms(t2, t3)) + "ms");
-        }
+        auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        app::utils::Logger::debug("[WeaponInference] Weapon detection completed"
+            " | detection_count=" + std::to_string(boxes.size()) +
+            " | confidence_threshold=" + std::to_string(conf_thresh_) +
+            " | preprocess=" + std::to_string(ms(t0, t1)) +
+            "ms | infer=" + std::to_string(ms(t1, t2)) +
+            "ms | postprocess=" + std::to_string(ms(t2, t3)) + "ms");
 
         return {boxes, max_conf};
 

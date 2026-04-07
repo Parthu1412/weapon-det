@@ -5,7 +5,7 @@
     "cppzmq",
     "nlohmann-json",
     "redis-plus-plus",
-    "librdkafka",
+    { "name": "librdkafka", "features": ["ssl"] },
     "curl",
     { "name": "aws-sdk-cpp", "default-features": false, "features": ["s3"] }
   ]

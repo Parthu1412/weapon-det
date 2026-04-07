@@ -171,7 +171,7 @@ private:
 
     std::optional<int> get_latest_frame_number()
     {
-        std::string key = camera_id_ + "_latest";
+        std::string key = camera_id_ + "_latest_str";
         auto val_opt = redis_->get(key);
         if (!val_opt)
         {

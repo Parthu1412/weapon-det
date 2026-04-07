@@ -70,6 +70,7 @@ int main() {
                 continue;
             }
 
+            frames_processed++;
             try {
                 const std::vector<app::utils::PersonDetection>* pptr =
                     pkt.person_detections.empty() ? nullptr : &pkt.person_detections;

@@ -42,6 +42,9 @@ PersonInference::PersonInference(const std::string& model_path, float conf_thres
 
         app::utils::Logger::info("[PersonInference] Loaded on " +
             std::string(device_.is_cuda() ? "GPU" : "CPU") + ": " + model_path);
+        app::utils::Logger::info("[PersonInference] Person detection model loaded"
+            " | model_path=" + model_path +
+            " | person_class_id=" + std::to_string(person_class_id));
 
         // Warmup: Run 100 dummy frames to stabilize CUDA context
         app::utils::Logger::info("[PersonInference] Warming up model with 100 dummy frames...");
@@ -173,7 +176,7 @@ void PersonInference::decode_and_nms_(const torch::Tensor& raw, int orig_w, int 
 std::vector<app::utils::PersonDetection> PersonInference::detect(const cv::Mat& frame) {
     if (frame.empty()) return {};
 
-    const bool log_timing = (std::getenv("INFERENCE_TIMING_BREAKDOWN") != nullptr);
+
 
     try {
         torch::NoGradGuard no_grad;
@@ -205,14 +208,14 @@ std::vector<app::utils::PersonDetection> PersonInference::detect(const cv::Mat& 
         decode_and_nms_(pred, frame.cols, frame.rows, results);
         auto t3 = std::chrono::high_resolution_clock::now();
 
-        if (log_timing) {
-            auto ms = [](auto a, auto b) {
-                return std::chrono::duration<double, std::milli>(b - a).count();
-            };
-            app::utils::Logger::info("[PersonInference] preprocess=" + std::to_string(ms(t0, t1)) +
-                                     "ms  infer=" + std::to_string(ms(t1, t2)) +
-                                     "ms  postprocess=" + std::to_string(ms(t2, t3)) + "ms");
-        }
+        auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        app::utils::Logger::debug("[PersonInference] Person detection completed"
+            " | detection_count=" + std::to_string(results.size()) +
+            " | preprocess=" + std::to_string(ms(t0, t1)) +
+            "ms | infer=" + std::to_string(ms(t1, t2)) +
+            "ms | postprocess=" + std::to_string(ms(t2, t3)) + "ms");
 
         return results;
     } catch (const std::exception& e) {

@@ -119,10 +119,10 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT EXIT
 
-# echo "Starting msg_gen..."
-# "$BUILD_DIR/msg_gen" &
-# PIDS["msg_gen"]=$!
-# sleep 2
+echo "Starting msg_gen..."
+"$BUILD_DIR/msg_gen" &
+PIDS["msg_gen"]=$!
+sleep 2
 
 echo "Starting weapon_inference (RF-DETR ONNX; downloads weapon model from S3 on first run)..."
 "$BUILD_DIR/weapon_inference" &

@@ -102,8 +102,8 @@ void AppConfig::load() {
 
     weapon_model_path = getenv_str("MODEL_PATH", "inference_model.onnx");
     weapon_model_s3_key = getenv_str("MODEL_S3_KEY", weapon_model_s3_key);
-    confidence_threshold = getenv_float("CONFIDENCE_THRESHOLD", 0.5f);
-    iou_threshold = getenv_float("IOU_THRESHOLD", 0.1f);
+    confidence_threshold = getenv_float("CONFIDENCE_THRESHOLD", 0.2f);
+    iou_threshold = getenv_float("IOU_THRESHOLD", 0.0f);
     person_bbox_expansion_percent = getenv_float("PERSON_BBOX_EXPANSION_PERCENT", 0.2f);
 
     person_detection_model = getenv_str("PERSON_DETECTION_MODEL", person_detection_model);
@@ -117,7 +117,7 @@ void AppConfig::load() {
 
     redis_host = getenv_str("REDIS_HOST", "localhost");
     redis_port = getenv_int("REDIS_PORT", 6379);
-    redis_password = getenv_str("REDIS_PASSWORD", "");
+    redis_password = getenv_str("REDIS_PASSWORD", "moksa123");
     redis_expiry = getenv_int("REDIS_EXPIRY", 200);
     try {
         longint_max = static_cast<int64_t>(std::stoll(getenv_str("LONGINT_MAX", "30000")));
