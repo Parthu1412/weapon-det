@@ -106,7 +106,7 @@ public:
             last_successful_frame_ = frame_number_;
             last_frame_number_ = frame_number_;
             frame_number_ += 1;
-            if (frame_number_ >= static_cast<int>(AppConfig::getInstance().longint_max))
+            if (frame_number_ >= static_cast<int>(app::config::AppConfig::getInstance().longint_max))
             {
                 frame_number_ = 0;
                 last_successful_frame_ = -1;

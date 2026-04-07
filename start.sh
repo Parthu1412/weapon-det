@@ -49,7 +49,7 @@ if [ "${WEAPON_SKIP_BUILD:-0}" != "1" ]; then
         cmake -B build -S . -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
-            -DCMAKE_PREFIX_PATH=/opt/libtorch \
+            -DCMAKE_PREFIX_PATH="/opt/libtorch;/opt/onnxruntime" \
             -DCMAKE_BUILD_TYPE=Release \
             "${_EXTRA_CMAKE[@]}"
     fi
@@ -119,10 +119,10 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT EXIT
 
-echo "Starting msg_gen..."
-"$BUILD_DIR/msg_gen" &
-PIDS["msg_gen"]=$!
-sleep 2
+# echo "Starting msg_gen..."
+# "$BUILD_DIR/msg_gen" &
+# PIDS["msg_gen"]=$!
+# sleep 2
 
 echo "Starting weapon_inference (RF-DETR ONNX; downloads weapon model from S3 on first run)..."
 "$BUILD_DIR/weapon_inference" &

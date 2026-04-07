@@ -7,7 +7,6 @@
     "redis-plus-plus",
     "librdkafka",
     "curl",
-    { "name": "aws-sdk-cpp", "default-features": false, "features": ["s3"] },
-    { "name": "onnxruntime", "default-features": false, "features": ["cuda"] }
+    { "name": "aws-sdk-cpp", "default-features": false, "features": ["s3"] }
   ]
 }

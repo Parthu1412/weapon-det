@@ -78,7 +78,7 @@ int main() {
                 out.store_id = pkt.store_id;
                 out.timestamp = pkt.timestamp;
                 out.confidence = opt->confidence;
-                out.weapon_detections = std::move(opt->weapon_detections);
+                out.weapon_boxes = std::move(opt->weapon_detections);
                 out.person_detections = std::move(opt->person_detections);
                 out.annotated_frame = std::move(opt->annotated_frame);
 
