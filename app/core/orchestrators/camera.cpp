@@ -259,9 +259,11 @@ int main(int argc, char** argv)
     try {
         zmq::context_t ctx(1);
         zmq::socket_t push(ctx, zmq::socket_type::push);
-        push.bind("tcp://*:" + std::to_string(cfg.zmq_camera_to_weapon_port));
+        const std::string w_ep = "tcp://" + cfg.zmq_camera_to_weapon_host + ":" +
+            std::to_string(cfg.zmq_camera_to_weapon_port);
+        push.connect(w_ep);
         push.set(zmq::sockopt::sndhwm, 300);
-        app::utils::Logger::info("Bound to port " + std::to_string(cfg.zmq_camera_to_weapon_port) +
+        app::utils::Logger::info("Connected to port " + std::to_string(cfg.zmq_camera_to_weapon_port) +
             " for sending to weapon orchestrator");
 
         zmq::socket_t person_feed(ctx, zmq::socket_type::push);

@@ -54,16 +54,16 @@ int main()
         pull.bind(bind_ep);
         app::utils::Logger::info("[PersonDetection] PULL bound " + bind_ep);
 
-        app::utils::AwsApiManager aws_life;
-        app::utils::S3Client s3;
-        if (!cfg.person_detection_model_s3_key.empty()) {
-            try {
-                s3.download_from_s3(cfg.person_detection_model_path, cfg.person_detection_model_s3_key);
-            } catch (const std::exception& e) {
-                app::utils::Logger::error(std::string("[PersonDetection] S3 model download failed: ") + e.what());
-                return 1;
-            }
-        }
+        // app::utils::AwsApiManager aws_life;
+        // app::utils::S3Client s3;
+        // if (!cfg.person_detection_model_s3_key.empty()) {
+        //     try {
+        //         s3.download_from_s3(cfg.person_detection_model_path, cfg.person_detection_model_s3_key);
+        //     } catch (const std::exception& e) {
+        //         app::utils::Logger::error(std::string("[PersonDetection] S3 model download failed: ") + e.what());
+        //         return 1;
+        //     }
+        // }
 
         zmq::socket_t push(ctx, zmq::socket_type::push);
         const std::string w_ep = "tcp://" + cfg.zmq_camera_to_weapon_host + ":" +
@@ -75,6 +75,7 @@ int main()
         app::core::inferences::PersonModel model(cfg.person_detection_model_path, cfg.person_confidence_threshold,
                                                  cfg.person_iou_threshold, cfg.person_class_id);
 
+        int frames_processed = 0;
         while (!g_stop) {
             ZmqWeaponFramePacket pkt;
             if (!zmq_recv_weapon_frame(pull, pkt, zmq::recv_flags::dontwait)) {
@@ -84,8 +85,22 @@ int main()
             if (pkt.frame.empty())
                 continue;
 
+            frames_processed++;
             try {
+                auto t0 = std::chrono::steady_clock::now();
                 auto dets = model.detect(pkt.frame);
+                const double inference_time_s =
+                    std::chrono::duration_cast<std::chrono::duration<double>>(
+                        std::chrono::steady_clock::now() - t0).count();
+
+                std::ostringstream oss;
+                oss << std::fixed << std::setprecision(3);
+                oss << "Person inference took"
+                    << " | inference_time=" << inference_time_s
+                    << " | camera_id=" << pkt.camera_id
+                    << " | processed_frame_num=" << frames_processed;
+                app::utils::Logger::info(oss.str());
+
                 auto& ccfg = app::config::AppConfig::getInstance();
                 if (!ccfg.publish_weapon_without_person && dets.empty())
                     continue;

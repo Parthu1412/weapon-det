@@ -100,14 +100,14 @@ void AppConfig::load() {
     buffer_size = getenv_int("BUFFER_SIZE", 2);
     fps = getenv_int("FPS", 1);
 
-    weapon_model_path = getenv_str("MODEL_PATH", weapon_model_path);
+    weapon_model_path = getenv_str("MODEL_PATH", "inference_model.onnx");
     weapon_model_s3_key = getenv_str("MODEL_S3_KEY", weapon_model_s3_key);
     confidence_threshold = getenv_float("CONFIDENCE_THRESHOLD", 0.5f);
     iou_threshold = getenv_float("IOU_THRESHOLD", 0.1f);
     person_bbox_expansion_percent = getenv_float("PERSON_BBOX_EXPANSION_PERCENT", 0.2f);
 
     person_detection_model = getenv_str("PERSON_DETECTION_MODEL", person_detection_model);
-    person_detection_model_path = getenv_str("PERSON_DETECTION_MODEL_PATH", person_detection_model_path);
+    person_detection_model_path = getenv_str("PERSON_DETECTION_MODEL_PATH", "yolov8m.torchscript");
     person_detection_model_s3_key = getenv_str("PERSON_DETECTION_MODEL_S3_KEY", "");
     person_class_id = getenv_int("PERSON_CLASS_ID", 0);
     person_confidence_threshold = getenv_float("PERSON_CONFIDENCE_THRESHOLD", 0.25f);

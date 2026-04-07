@@ -115,6 +115,7 @@ add_executable(weapon_inference
 )
 target_include_directories(weapon_inference PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(weapon_inference PRIVATE
+    ${TORCH_LIBRARIES}
     ${WEAPON_OPENCV_DEPS}
     libzmq
     nlohmann_json::nlohmann_json

@@ -33,12 +33,14 @@ private:
 
     std::vector<cv::Mat> sampleFramesToTargetFps(const std::vector<FrameWithTs>& frames) const;
     void readFramesLoop();
+    void openCapture();
 
     std::string url_;
     int target_fps_;
     int buffer_size_;
 
     cv::VideoCapture cap_;
+    mutable std::mutex cap_mtx_;
 
     std::deque<cv::Mat> frame_buffer_;
     mutable std::mutex buffer_lock_;
@@ -50,9 +52,11 @@ private:
 
     std::chrono::system_clock::time_point buffer_start_time_;
     std::chrono::system_clock::time_point last_log_time_;
+    std::chrono::system_clock::time_point last_success_time_;
 
     int frames_received_count_{0};
     int frames_sampled_count_{0};
+    int consecutive_failures_{0};
 
     std::vector<FrameWithTs> frame_buffer_1s_;
 };

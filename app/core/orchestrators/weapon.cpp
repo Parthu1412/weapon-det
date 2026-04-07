@@ -6,7 +6,9 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <zmq.hpp>
@@ -25,12 +27,11 @@ int main() {
     try {
         zmq::context_t ctx(1);
         zmq::socket_t pull(ctx, zmq::socket_type::pull);
-        std::string cam_ep = "tcp://" + cfg.zmq_camera_to_weapon_host + ":" +
-                              std::to_string(cfg.zmq_camera_to_weapon_port);
-        pull.connect(cam_ep);
+        std::string cam_ep = "tcp://*:" + std::to_string(cfg.zmq_camera_to_weapon_port);
+        pull.bind(cam_ep);
         pull.set(zmq::sockopt::rcvhwm, 300);
-        app::utils::Logger::info("Connected to port " + std::to_string(cfg.zmq_camera_to_weapon_port) +
-            " for receiving from camera orchestrator");
+        app::utils::Logger::info("Bound to port " + std::to_string(cfg.zmq_camera_to_weapon_port) +
+            " for receiving from camera orchestrator and person_detection");
 
         zmq::socket_t push(ctx, zmq::socket_type::push);
         push.bind("tcp://*:" + std::to_string(cfg.zmq_weapon_msg_gen_port));
@@ -38,21 +39,24 @@ int main() {
         app::utils::Logger::info("Bound to port " + std::to_string(cfg.zmq_weapon_msg_gen_port) +
             " for sending to msg gen orchestrator");
 
-        app::utils::AwsApiManager aws_life;
-        app::utils::S3Client s3_models;
-        if (!cfg.weapon_model_s3_key.empty()) {
-            try {
-                s3_models.download_from_s3(cfg.weapon_model_path, cfg.weapon_model_s3_key);
-            } catch (const std::exception& e) {
-                app::utils::Logger::error(std::string("[WeaponOrche] S3 weapon model download failed: ") + e.what());
-                return 1;
-            }
-        }
+        // app::utils::AwsApiManager aws_life;
+        // app::utils::S3Client s3_models;
+        // if (!cfg.weapon_model_s3_key.empty()) {
+        //     try {
+        //         s3_models.download_from_s3(cfg.weapon_model_path, cfg.weapon_model_s3_key);
+        //     } catch (const std::exception& e) {
+        //         app::utils::Logger::error(std::string("[WeaponOrche] S3 weapon model download failed: ") + e.what());
+        //         return 1;
+        //     }
+        // }
 
         app::core::services::WeaponService weapon_svc;
 
         app::utils::Logger::info("Initialized");
 
+        int frames_processed = 0;
+        int frames_detected = 0;
+        auto last_stats_log = std::chrono::steady_clock::now();
         while (!g_stop) {
             ZmqWeaponFramePacket pkt;
             if (!zmq_recv_weapon_frame(pull, pkt, zmq::recv_flags::dontwait)) {
@@ -69,7 +73,20 @@ int main() {
             try {
                 const std::vector<app::utils::PersonDetection>* pptr =
                     pkt.person_detections.empty() ? nullptr : &pkt.person_detections;
+                auto t0 = std::chrono::steady_clock::now();
                 auto opt = weapon_svc.process_frame(pkt.frame, pptr);
+                const double inference_time_s =
+                    std::chrono::duration_cast<std::chrono::duration<double>>(
+                        std::chrono::steady_clock::now() - t0).count();
+
+                std::ostringstream oss;
+                oss << std::fixed << std::setprecision(3);
+                oss << "Weapon inference took"
+                    << " | inference_time=" << inference_time_s
+                    << " | camera_id=" << pkt.camera_id
+                    << " | processed_frame_num=" << frames_processed;
+                app::utils::Logger::info(oss.str());
+
                 if (!opt.has_value())
                     continue;
 
