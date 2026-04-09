@@ -1,10 +1,15 @@
+// Person Detection Inference — interface for PersonInference and PersonModel.
+// PersonInference: Ultralytics-style YOLO TorchScript inference with letterbox
+//   preprocessing, FP16/BF16 auto-detection, GPU warmup, and NMS decoding.
+// PersonModel: thin facade used by the person_detection orchestrator.
 #pragma once
 
 #include <c10/core/ScalarType.h>
+#include <torch/script.h>
+
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
-#include <torch/script.h>
 
 #include "../../utils/detection_json.hpp"
 
@@ -15,9 +20,11 @@ namespace app::core::inferences {
  * Decode [1, 4+nc, N] (or tuple first tensor) with per-row argmax class + conf,
  * then filter to person_class_id (matches Ultralytics classes=[id]).
  */
-class PersonInference {
+class PersonInference
+{
 public:
-    PersonInference(const std::string& model_path, float conf_thresh, float iou_thresh, int person_class_id);
+    PersonInference(const std::string& model_path, float conf_thresh, float iou_thresh,
+                    int person_class_id);
 
     std::vector<app::utils::PersonDetection> detect(const cv::Mat& bgr);
 
@@ -37,13 +44,19 @@ private:
 };
 
 /** Stable name for camera pipeline — delegates to PersonInference. */
-class PersonModel {
+class PersonModel
+{
 public:
-    PersonModel(const std::string& torchscript_path, float conf_thresh, float iou_thresh, int person_class_id)
+    PersonModel(const std::string& torchscript_path, float conf_thresh, float iou_thresh,
+                int person_class_id)
         : impl_(torchscript_path, conf_thresh, iou_thresh, person_class_id)
-    {}
+    {
+    }
 
-    std::vector<app::utils::PersonDetection> detect(const cv::Mat& bgr) { return impl_.detect(bgr); }
+    std::vector<app::utils::PersonDetection> detect(const cv::Mat& bgr)
+    {
+        return impl_.detect(bgr);
+    }
 
 private:
     PersonInference impl_;

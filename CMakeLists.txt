@@ -30,7 +30,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SAC REQUIRED IMPORTED_TARGET libSimpleAmqpClient)
 
 # ==============================================================================
-# System libcurl workaround (same as fall-cpp)
+# System libcurl workaround
 # Ubuntu's system OpenCV may pull GDAL/NetCDF built against system libcurl4
 # versioned symbols (CURL_OPENSSL_4). vcpkg libcurl lacks those versioned
 # symbols → unresolved symbols at link. Fix: prefer system libcurl for any

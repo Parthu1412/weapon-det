@@ -1,5 +1,5 @@
-// AWS S3 — weapon-detection aws.py parity (upload direct URL, download_from_s3) +
-// fall-cpp PermanentRedirect retry and per-call SDK client pattern.
+// AWS S3 — aws.py parity (upload direct URL, download_from_s3) +
+// PermanentRedirect retry and per-call SDK client pattern.
 #include "aws.hpp"
 
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -17,7 +17,7 @@ namespace utils {
 
 namespace {
 
-template<typename Err>
+template <typename Err>
 std::string redirect_region(const Err& err)
 {
     if (std::string(err.GetExceptionName().c_str()) != "PermanentRedirect")
@@ -70,9 +70,9 @@ std::optional<std::string> S3Client::upload_bytes_and_get_url(const void* data, 
         {
             std::string url =
                 "https://" + bucket_ + ".s3." + effectiveRegion + ".amazonaws.com/" + object_name;
-            app::utils::Logger::info(
-                "[S3Client] Image uploaded successfully to S3 bucket=" + bucket_ +
-                " object_name=" + object_name + " size_bytes=" + std::to_string(size) + " url=" + url);
+            app::utils::Logger::info("[S3Client] Image uploaded successfully to S3 bucket=" +
+                                     bucket_ + " object_name=" + object_name +
+                                     " size_bytes=" + std::to_string(size) + " url=" + url);
             region_ = effectiveRegion;
             return url;
         }
@@ -87,9 +87,9 @@ std::optional<std::string> S3Client::upload_bytes_and_get_url(const void* data, 
         }
 
         app::utils::Logger::error("[S3Client] Error uploading image to S3 bucket=" + bucket_ +
-                                  " object_name=" + object_name + " error=" +
-                                  std::string(outcome.GetError().GetExceptionName()) + " - " +
-                                  outcome.GetError().GetMessage());
+                                  " object_name=" + object_name +
+                                  " error=" + std::string(outcome.GetError().GetExceptionName()) +
+                                  " - " + outcome.GetError().GetMessage());
         return std::nullopt;
     }
     return std::nullopt;
@@ -141,9 +141,8 @@ std::optional<std::string> S3Client::upload_video_file_and_get_url(const std::st
         {
             std::string url =
                 "https://" + bucket_ + ".s3." + effectiveRegion + ".amazonaws.com/" + object_name;
-            app::utils::Logger::info(
-                "[S3Client] File uploaded successfully to S3 bucket=" + bucket_ +
-                " object_name=" + object_name + " url=" + url);
+            app::utils::Logger::info("[S3Client] File uploaded successfully to S3 bucket=" +
+                                     bucket_ + " object_name=" + object_name + " url=" + url);
             region_ = effectiveRegion;
             return url;
         }
@@ -217,8 +216,8 @@ std::string S3Client::download_from_s3(const std::string& local_path, const std:
             outfile.close();
             if (!outfile)
             {
-                app::utils::Logger::error(
-                    "[S3Client] Download failed local_path=" + local_path + " error=write_failed");
+                app::utils::Logger::error("[S3Client] Download failed local_path=" + local_path +
+                                          " error=write_failed");
                 throw std::runtime_error("Download failed: could not write " + local_path);
             }
             app::utils::Logger::info("[S3Client] Downloaded successfully local_path=" + local_path);
@@ -229,8 +228,9 @@ std::string S3Client::download_from_s3(const std::string& local_path, const std:
         std::string redir = redirect_region(outcome.GetError());
         if (!redir.empty() && attempt == 0)
         {
-            app::utils::Logger::info("[S3Client] PermanentRedirect (GetObject): retrying with region " +
-                                     redir + " (was " + effectiveRegion + ")");
+            app::utils::Logger::info(
+                "[S3Client] PermanentRedirect (GetObject): retrying with region " + redir +
+                " (was " + effectiveRegion + ")");
             effectiveRegion = redir;
             continue;
         }

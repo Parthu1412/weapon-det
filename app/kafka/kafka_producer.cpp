@@ -1,4 +1,7 @@
-// Kafka producer — same async poll pattern as fall-cpp; payload serialized with WeaponMessage + to_json.
+// Kafka Producer - publishes WeaponMessage detections to an AWS MSK Kafka topic.
+// Uses librdkafka with SASL/OAUTHBEARER (MSK IAM) authentication and SASL_SSL.
+// Runs a background poll thread to serve delivery callbacks asynchronously.
+// Retries producer creation up to AppConfig::max_retries with 1s backoff on failure.
 #include "kafka_producer.hpp"
 
 #include <librdkafka/rdkafkacpp.h>
@@ -25,18 +28,17 @@ class DeliveryReportCbImpl : public RdKafka::DeliveryReportCb
 public:
     void dr_cb(RdKafka::Message& msg) override
     {
-        if (msg.err() != RdKafka::ERR_NO_ERROR) {
+        if (msg.err() != RdKafka::ERR_NO_ERROR)
+        {
             app::utils::Logger::error("[Kafka] Delivery failed: " + msg.errstr());
-        } else {
-            // Matches Python: logger.info("Message sent to Kafka", extra={topic, trace_id, partition, offset})
-            const std::string trace_id = (msg.key() && !msg.key()->empty())
-                ? *msg.key()
-                : "";
-            app::utils::Logger::info("Message sent to Kafka"
-                " | topic=" + msg.topic_name() +
-                " | trace_id=" + trace_id +
-                " | partition=" + std::to_string(msg.partition()) +
-                " | offset=" + std::to_string(msg.offset()));
+        } else
+        {
+            const std::string trace_id = (msg.key() && !msg.key()->empty()) ? *msg.key() : "";
+            app::utils::Logger::info(
+                "Message sent to Kafka"
+                " | topic=" +
+                msg.topic_name() + " | trace_id=" + trace_id + " | partition=" +
+                std::to_string(msg.partition()) + " | offset=" + std::to_string(msg.offset()));
         }
     }
 };
@@ -199,10 +201,10 @@ void KafkaProducer::produce(const std::string& topic, const app::utils::WeaponMe
         app::utils::Logger::error("[Kafka] produce: not started");
         std::exit(1);
     }
-    // Matches Python: logger.info("Sending message to Kafka", extra={topic, trace_id, camera_id, store_id})
-    app::utils::Logger::info("Sending message to Kafka"
-        " | topic=" + topic +
-        " | trace_id=" + message.trace_id +
+    app::utils::Logger::info(
+        "Sending message to Kafka"
+        " | topic=" +
+        topic + " | trace_id=" + message.trace_id +
         " | camera_id=" + std::to_string(message.moksa_camera_id) +
         " | store_id=" + std::to_string(message.store_id));
 

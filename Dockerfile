@@ -1,13 +1,3 @@
-# syntax=docker/dockerfile:1
-# Build:
-#   DOCKER_BUILDKIT=1 docker build -t weapon-cpp:latest .
-#
-# Run (code baked in; start.sh compiles then launches all processes):
-#   docker run --gpus all --rm --env-file .env weapon-cpp:latest
-#
-# Or mount code for live dev (start.sh rebuilds on change):
-#   docker run --gpus all --rm -v $(pwd):/app --env-file .env weapon-cpp:latest
-
 FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -41,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ==============================================================================
-# SimpleAmqpClient — not in Ubuntu 22.04 apt; build from source (same as fall-cpp)
+# SimpleAmqpClient — not in Ubuntu 22.04 apt; build from source
 # ==============================================================================
 RUN git clone --depth 1 --branch v2.5.1 https://github.com/alanxz/SimpleAmqpClient.git /tmp/SimpleAmqpClient \
     && cmake -S /tmp/SimpleAmqpClient -B /tmp/SimpleAmqpClient/build \
@@ -97,7 +87,7 @@ ENV LD_LIBRARY_PATH=/opt/onnxruntime/lib:${LD_LIBRARY_PATH}
 
 # ==============================================================================
 # vcpkg — installs: cppzmq, nlohmann-json, redis-plus-plus, librdkafka, curl,
-#          aws-sdk-cpp[s3]  (see vcpkg.json)
+#          aws-sdk-cpp[s3]
 # ==============================================================================
 ENV VCPKG_DEFAULT_TRIPLET=x64-linux-dynamic
 RUN git clone --depth 1 --branch 2024.11.16 https://github.com/microsoft/vcpkg.git /opt/vcpkg \
@@ -112,15 +102,10 @@ WORKDIR /app
 # T4 GPU = compute capability 7.5 — pre-set so start.sh skips nvidia-smi detection
 ENV TORCH_CUDA_ARCH_LIST=7.5
 
-# Copy requirements first for better layer caching (vcpkg deps won't reinstall if vcpkg.json unchanged)
+# Copy requirements first for better layer caching
 COPY vcpkg.json .
 COPY CMakeLists.txt .
 
-# Pre-install all vcpkg dependencies into the image so container startup is fast.
-# BuildKit persistent cache keeps vcpkg binary archives on the host so packages
-# already downloaded are never re-fetched from GitHub on subsequent builds,
-# even when `docker build --no-cache` is used. The retry loop handles transient
-# 5xx errors from GitHub (e.g. 502 Bad Gateway).
 RUN --mount=type=cache,target=/root/.cache/vcpkg \
     for attempt in 1 2 3; do \
         /opt/vcpkg/vcpkg install --triplet x64-linux-dynamic && break; \

@@ -11,7 +11,6 @@ namespace kafka {
 
 /**
  * Generate an AWS MSK IAM OAuth token using SigV4 presigning.
- * Matches the Python aws-msk-iam-sasl-signer behavior:
  * GET https://kafka.{region}.amazonaws.com/?Action=kafka-cluster:Connect
  * Presign with SigV4, base64 URL-safe encode the signed URL (no padding).
  *

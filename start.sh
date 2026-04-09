@@ -94,11 +94,6 @@ export TORCH_XNNPACK_DISABLE="${TORCH_XNNPACK_DISABLE:-1}"
 
 
 # STEP 3: Launch pipeline
-# Start order: most-downstream first so each process is ready before its upstream sends.
-#   msg_gen        — connects to weapon_inference output (ZMQ_WEAPON_TO_OUTPUT_PORT)
-#   weapon_inference — binds output port; connects to camera port; downloads weapon model from S3
-#   camera_reader  — binds camera port; auto-spawns person_detection subprocess for non-Redis cameras
-#                    (person_detection downloads person model from S3 and runs YOLO TorchScript)
 
 echo "========================================"
 echo "       STARTING WEAPON PIPELINE         "

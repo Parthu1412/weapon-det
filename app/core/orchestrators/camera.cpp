@@ -1,8 +1,9 @@
-#include "zmq_io.hpp"
-#include "../../config.hpp"
-#include "../../utils/logger.hpp"
-#include "../../utils/redis_client.hpp"
-#include "../../utils/rtsp_camera.hpp"
+// Camera Orchestrator - Process for camera management.
+// Manages one worker thread per configured camera (redis, rtsp, video).
+// Redis cameras: reads frames + person detections from Redis, sends directly to weapon_inference
+// via ZMQ. RTSP/video cameras: reads raw frames, forwards to person_detection subprocess via ZMQ
+// (port 5560). Spawns person_detection binary as a child process for non-Redis cameras; reaps it on
+// shutdown.
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -17,6 +18,12 @@
 #include <thread>
 #include <vector>
 #include <zmq.hpp>
+
+#include "../../config.hpp"
+#include "../../utils/logger.hpp"
+#include "../../utils/redis_client.hpp"
+#include "../../utils/rtsp_camera.hpp"
+#include "zmq_io.hpp"
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -41,19 +48,24 @@ HANDLE g_person_process = nullptr;
 pid_t g_person_pid = -1;
 #endif
 
-static void on_sig(int) { g_stop = true; }
+static void on_sig(int)
+{
+    g_stop = true;
+}
 
 void reap_person_child()
 {
 #ifdef _WIN32
-    if (g_person_process) {
+    if (g_person_process)
+    {
         TerminateProcess(g_person_process, 1);
         WaitForSingleObject(g_person_process, 8000);
         CloseHandle(g_person_process);
         g_person_process = nullptr;
     }
 #else
-    if (g_person_pid > 0) {
+    if (g_person_pid > 0)
+    {
         kill(g_person_pid, SIGTERM);
         int st = 0;
         waitpid(g_person_pid, &st, 0);
@@ -82,7 +94,9 @@ bool spawn_person_detection(const std::string& exe)
     std::string cmd = "\"" + exe + "\"";
     std::vector<char> buf(cmd.begin(), cmd.end());
     buf.push_back(0);
-    if (!CreateProcessA(exe.c_str(), buf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+    if (!CreateProcessA(exe.c_str(), buf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si,
+                        &pi))
+    {
         app::utils::Logger::error("[CameraOrche] CreateProcess failed for person_detection err=" +
                                   std::to_string(static_cast<unsigned>(GetLastError())));
         return false;
@@ -92,11 +106,13 @@ bool spawn_person_detection(const std::string& exe)
     return true;
 #else
     pid_t pid = fork();
-    if (pid == -1) {
+    if (pid == -1)
+    {
         app::utils::Logger::error("[CameraOrche] fork failed for person_detection");
         return false;
     }
-    if (pid == 0) {
+    if (pid == 0)
+    {
         execl(exe.c_str(), "person_detection", static_cast<char*>(nullptr));
         _exit(127);
     }
@@ -119,24 +135,29 @@ std::string utc_iso_now()
     return oss.str();
 }
 
-void run_camera_worker(const CameraConfig& cam, zmq::socket_t& push_sock, zmq::socket_t* person_feed,
-                       std::atomic<bool>& alive)
+void run_camera_worker(const CameraConfig& cam, zmq::socket_t& push_sock,
+                       zmq::socket_t* person_feed, std::atomic<bool>& alive)
 {
     using namespace app::core::orchestrators;
     auto& cfg = app::config::AppConfig::getInstance();
 
     app::utils::Logger::info("[Camera] Thread starting camera_id=" + std::to_string(cam.id) +
-        " store_id=" + std::to_string(cam.store_id) + " client_type=" + cam.client_type);
+                             " store_id=" + std::to_string(cam.store_id) +
+                             " client_type=" + cam.client_type);
 
-    if (cam.client_type == "redis") {
+    if (cam.client_type == "redis")
+    {
         app::utils::WeaponRedisConsumer redis(std::to_string(cam.id), static_cast<float>(cfg.fps));
-        while (!g_stop) {
+        while (!g_stop)
+        {
             auto r = redis.read();
-            if (!r.ok) {
+            if (!r.ok)
+            {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 continue;
             }
-            if (r.frame.empty()) {
+            if (r.frame.empty())
+            {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 continue;
             }
@@ -150,15 +171,19 @@ void run_camera_worker(const CameraConfig& cam, zmq::socket_t& push_sock, zmq::s
             p.store_id = cam.store_id;
             p.timestamp = utc_iso_now();
             p.frame = r.frame;
-            if (!r.person_detections.empty()) p.person_detections = std::move(r.person_detections);
+            if (!r.person_detections.empty())
+                p.person_detections = std::move(r.person_detections);
 
             std::lock_guard<std::mutex> lk(g_zmq_send_mtx);
-            try {
-                if (!zmq_send_weapon_frame(push_sock, p)) {
+            try
+            {
+                if (!zmq_send_weapon_frame(push_sock, p))
+                {
                     app::utils::Logger::warning("Camera " + std::to_string(cam.id) +
-                        ": ZMQ buffer full, dropped frame");
+                                                ": ZMQ buffer full, dropped frame");
                 }
-            } catch (const zmq::error_t& e) {
+            } catch (const zmq::error_t& e)
+            {
                 app::utils::Logger::error(std::string("[Camera] Fatal ZMQ: ") + e.what());
                 std::exit(1);
             }
@@ -167,16 +192,20 @@ void run_camera_worker(const CameraConfig& cam, zmq::socket_t& push_sock, zmq::s
         return;
     }
 
-    if (cam.client_type == "rtsp" || cam.client_type == "video") {
-        if (!person_feed) {
+    if (cam.client_type == "rtsp" || cam.client_type == "video")
+    {
+        if (!person_feed)
+        {
             app::utils::Logger::error("[Camera] person_feed missing for non-Redis camera");
             alive = false;
             return;
         }
         app::utils::RTSPCamera cap(cam.url, cfg.fps, cfg.buffer_size);
-        while (!g_stop) {
+        while (!g_stop)
+        {
             cv::Mat frame;
-            if (!cap.read(frame)) {
+            if (!cap.read(frame))
+            {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
@@ -187,13 +216,17 @@ void run_camera_worker(const CameraConfig& cam, zmq::socket_t& push_sock, zmq::s
             pkt.frame = std::move(frame);
 
             std::lock_guard<std::mutex> lk(g_person_feed_mtx);
-            try {
-                if (!zmq_send_weapon_frame(*person_feed, pkt)) {
+            try
+            {
+                if (!zmq_send_weapon_frame(*person_feed, pkt))
+                {
                     app::utils::Logger::warning("Camera " + std::to_string(cam.id) +
-                        ": person ZMQ buffer full, dropped frame");
+                                                ": person ZMQ buffer full, dropped frame");
                 }
-            } catch (const zmq::error_t& e) {
-                app::utils::Logger::error(std::string("[Camera] person_feed ZMQ fatal: ") + e.what());
+            } catch (const zmq::error_t& e)
+            {
+                app::utils::Logger::error(std::string("[Camera] person_feed ZMQ fatal: ") +
+                                          e.what());
                 std::exit(1);
             }
         }
@@ -217,60 +250,69 @@ int main(int argc, char** argv)
     std::signal(SIGTERM, on_sig);
 
     auto cameras = cfg.load_camera_configs();
-    if (cameras.empty()) {
+    if (cameras.empty())
+    {
         app::utils::Logger::error("[CameraOrche] Failed to load camera configurations");
         return 1;
     }
 
     bool has_non_redis = false;
-    for (const auto& kv : cameras) {
-        if (kv.second.client_type != "redis") {
+    for (const auto& kv : cameras)
+    {
+        if (kv.second.client_type != "redis")
+        {
             has_non_redis = true;
             break;
         }
     }
 
-    if (has_non_redis) {
+    if (has_non_redis)
+    {
         std::filesystem::path child_path;
         if (!cfg.person_detection_exe.empty())
             child_path = cfg.person_detection_exe;
         else
             child_path = default_person_exe(argc > 0 ? argv[0] : nullptr);
 
-        if (!std::filesystem::exists(child_path)) {
-            app::utils::Logger::error("[CameraOrche] person_detection binary not found: " + child_path.string() +
-                                      " (set PERSON_DETECTION_EXE)");
+        if (!std::filesystem::exists(child_path))
+        {
+            app::utils::Logger::error("[CameraOrche] person_detection binary not found: " +
+                                      child_path.string() + " (set PERSON_DETECTION_EXE)");
             return 1;
         }
 
-        if (!spawn_person_detection(child_path.string())) {
+        if (!spawn_person_detection(child_path.string()))
+        {
             app::utils::Logger::error("[CameraOrche] Failed to spawn person_detection");
             return 1;
         }
         app::utils::Logger::info("[CameraOrche] Spawned person_detection subprocess (grace " +
                                  std::to_string(cfg.person_spawn_grace_sec) + "s)");
         std::this_thread::sleep_for(std::chrono::seconds(std::max(1, cfg.person_spawn_grace_sec)));
-    } else {
+    } else
+    {
         app::utils::Logger::info("All cameras are Redis type, skipping person_detection process");
     }
 
     std::vector<std::thread> threads;
     std::vector<std::unique_ptr<std::atomic<bool>>> alive_flags;
-    try {
+    try
+    {
         zmq::context_t ctx(1);
         zmq::socket_t push(ctx, zmq::socket_type::push);
         const std::string w_ep = "tcp://" + cfg.zmq_camera_to_weapon_host + ":" +
-            std::to_string(cfg.zmq_camera_to_weapon_port);
+                                 std::to_string(cfg.zmq_camera_to_weapon_port);
         push.connect(w_ep);
         push.set(zmq::sockopt::sndhwm, 300);
-        app::utils::Logger::info("Connected to port " + std::to_string(cfg.zmq_camera_to_weapon_port) +
-            " for sending to weapon orchestrator");
+        app::utils::Logger::info("Connected to port " +
+                                 std::to_string(cfg.zmq_camera_to_weapon_port) +
+                                 " for sending to weapon orchestrator");
 
         zmq::socket_t person_feed(ctx, zmq::socket_type::push);
         zmq::socket_t* person_ptr = nullptr;
-        if (has_non_redis) {
-            const std::string ep =
-                "tcp://127.0.0.1:" + std::to_string(cfg.zmq_person_frame_port);
+        if (has_non_redis)
+        {
+            const std::string ep = "tcp://127.0.0.1:" + std::to_string(cfg.zmq_person_frame_port);
             person_feed.connect(ep);
             person_feed.set(zmq::sockopt::sndhwm, 300);
             person_ptr = &person_feed;
@@ -284,22 +326,26 @@ int main(int argc, char** argv)
             alive_flags.push_back(std::make_unique<std::atomic<bool>>(true));
 
         std::size_t idx = 0;
-        for (const auto& kv : cameras) {
+        for (const auto& kv : cameras)
+        {
             threads.emplace_back(run_camera_worker, kv.second, std::ref(push), person_ptr,
                                  std::ref(*alive_flags[idx]));
             app::utils::Logger::info("[CameraOrche] Started camera thread camera_id=" +
-                std::to_string(kv.second.id));
+                                     std::to_string(kv.second.id));
             ++idx;
         }
         app::utils::Logger::info("[CameraOrche] All camera threads started (count=" +
-            std::to_string(threads.size()) + ")");
+                                 std::to_string(threads.size()) + ")");
 
         app::utils::Logger::info("[CameraOrche] All systems running, starting monitoring...");
 
-        while (!g_stop) {
+        while (!g_stop)
+        {
             std::this_thread::sleep_for(std::chrono::seconds(5));
-            for (std::size_t i = 0; i < alive_flags.size(); ++i) {
-                if (!alive_flags[i]->load()) {
+            for (std::size_t i = 0; i < alive_flags.size(); ++i)
+            {
+                if (!alive_flags[i]->load())
+                {
                     app::utils::Logger::warning("[CameraOrche] A camera thread died");
                     g_stop = true;
                     break;
@@ -308,14 +354,19 @@ int main(int argc, char** argv)
         }
 
         g_stop = true;
-        for (auto& t : threads) {
-            if (t.joinable()) t.join();
+        for (auto& t : threads)
+        {
+            if (t.joinable())
+                t.join();
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception& e)
+    {
         app::utils::Logger::error(std::string("[CameraOrche] Fatal: ") + e.what());
         g_stop = true;
-        for (auto& t : threads) {
-            if (t.joinable()) t.join();
+        for (auto& t : threads)
+        {
+            if (t.joinable())
+                t.join();
         }
         reap_person_child();
         return 1;

@@ -25,8 +25,7 @@ namespace kafka {
 
 namespace {
 
-// Convert standard base64 to URL-safe base64 and strip padding (matches Python
-// urlsafe_b64encode().rstrip('='))
+// Convert standard base64 to URL-safe base64 and strip padding
 std::string to_urlsafe_base64_no_padding(const std::string& b64)
 {
     std::string result = b64;
@@ -61,7 +60,7 @@ std::string generate_msk_iam_token(const std::string& region)
     Aws::Client::AWSAuthV4Signer signer(credentialsProvider, "kafka-cluster", regionStr,
                                         Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never);
 
-    constexpr long long expirationSeconds = 900;  // 15 minutes (matches AWS MSK)
+    constexpr long long expirationSeconds = 900;
     if (!signer.PresignRequest(*request, region.c_str(), "kafka-cluster", expirationSeconds))
     {
         return "";
@@ -73,7 +72,7 @@ std::string generate_msk_iam_token(const std::string& region)
         return "";
     }
 
-    // Append User-Agent query param — matches Python aws-msk-iam-sasl-signer behavior
+    // Append User-Agent query param
     std::string finalUri = std::string(signedUri.c_str(), signedUri.size());
     finalUri += "&User-Agent=aws-msk-iam-sasl-signer-cpp%2F1.0.0";
 

@@ -1,6 +1,5 @@
 // Redis consumer for weapon pipeline — reads JSON frame payloads (frame_base64 +
-// detections) from the same key layout as centralized-yolo / Fall C++ producer.
-// Consumer pacing matches weapon-detection Python app/utils/redis_client.py (RedisConsumer).
+// detections) from the same key layout as centralized-yolo
 
 #pragma once
 
@@ -24,9 +23,7 @@ namespace app {
 namespace utils {
 
 /**
- * WeaponRedisConsumer — same Redis read pacing as Python weapon RedisConsumer.
- *
- * Keys (C++ reads JSON format; aligns with Fall C++ / centralized-yolo producer):
+ * Keys (C++ reads JSON format; aligns with centralized-yolo producer):
  *   - {camera_id}_latest_str  -> plain string frame number
  *   - {camera_id}_{frame_number}_json -> JSON with frame_base64, detections, timestamp
  */
@@ -43,7 +40,6 @@ public:
           last_timestamp_(0.0)
     {
         auto& config = app::config::AppConfig::getInstance();
-        // Python: fps if fps is not None else config.FPS — no forced minimum when <= 0
         fps_ = (fps > 0.0f) ? fps : static_cast<float>(config.fps);
 
         ConnectionOptions opts;
@@ -76,7 +72,6 @@ public:
             }
             int latest_frame_number = latest_opt.value();
 
-            // Python: if self.fps and self.fps > 0: ... calculate_target_frame
             if (fps_ > 0.0f)
             {
                 auto target_opt = calculate_target_frame(latest_frame_number);
@@ -102,11 +97,11 @@ public:
 
             ReadResult parsed = parse_frame_payload(*frame_data_opt);
 
-            // Python advances cursor whenever frame_data was present (even if frame is None).
             last_successful_frame_ = frame_number_;
             last_frame_number_ = frame_number_;
             frame_number_ += 1;
-            if (frame_number_ >= static_cast<int>(app::config::AppConfig::getInstance().longint_max))
+            if (frame_number_ >=
+                static_cast<int>(app::config::AppConfig::getInstance().longint_max))
             {
                 frame_number_ = 0;
                 last_successful_frame_ = -1;
@@ -176,7 +171,8 @@ private:
         if (!val_opt)
         {
             app::utils::Logger::warning(
-                "[WeaponRedisConsumer] No latest frame data set in Redis for camera: " + camera_id_);
+                "[WeaponRedisConsumer] No latest frame data set in Redis for camera: " +
+                camera_id_);
             return std::nullopt;
         }
         try
@@ -202,8 +198,8 @@ private:
     {
         if (frame_number_ < frame_number)
         {
-            app::utils::Logger::warning("[WeaponRedisConsumer] Consumer is very behind producer for " +
-                                        camera_id_);
+            app::utils::Logger::warning(
+                "[WeaponRedisConsumer] Consumer is very behind producer for " + camera_id_);
             return true;
         }
         return false;
@@ -211,7 +207,6 @@ private:
 
     std::optional<int> calculate_target_frame(int latest_frame_number)
     {
-        // Python: if not self.fps or self.fps <= 0: return self.frame_number
         if (fps_ <= 0.0f)
             return frame_number_;
 
@@ -242,7 +237,8 @@ private:
             if (last_successful_frame_ >= 0 && target_frame == last_successful_frame_)
             {
                 app::utils::Logger::debug(
-                    "[WeaponRedisConsumer] Waiting for new frame. Producer FPS < target FPS. Last: " +
+                    "[WeaponRedisConsumer] Waiting for new frame. Producer FPS < target FPS. "
+                    "Last: " +
                     std::to_string(last_successful_frame_) +
                     ", latest: " + std::to_string(latest_frame_number));
                 return std::nullopt;
@@ -253,7 +249,6 @@ private:
         return std::nullopt;
     }
 
-    /** Matches Python should_wait_or_reset(): re-queries latest from Redis. */
     bool should_wait_or_reset()
     {
         auto latest_opt = get_latest_frame_number();

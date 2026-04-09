@@ -1,18 +1,15 @@
-#include "zmq_io.hpp"
-#include "../../config.hpp"
-#include "../../kafka/kafka_producer.hpp"
-#include "../../mqtt/rabbitmq.hpp"
-#include "../../utils/aws.hpp"
-#include "../../utils/logger.hpp"
-#include "../../utils/message.hpp"
-#include <opencv2/opencv.hpp>
+// Message Generation Orchestrator - Process for publishing detections.
+// Receives detections (annotated frame + weapon boxes + confidence) from Weapon Orchestrator via
+// ZMQ. For each detection: JPEG-encodes annotated frame, uploads to S3, publishes WeaponMessage to
+// Kafka and RabbitMQ. Each detection is dispatched concurrently via std::async.
 #include <algorithm>
-#include <ctime>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <ctime>
 #include <future>
 #include <iomanip>
+#include <opencv2/opencv.hpp>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -20,10 +17,22 @@
 #include <vector>
 #include <zmq.hpp>
 
-static std::sig_atomic_t g_stop = 0;
-static void on_sig(int) { g_stop = 1; }
+#include "../../config.hpp"
+#include "../../kafka/kafka_producer.hpp"
+#include "../../mqtt/rabbitmq.hpp"
+#include "../../utils/aws.hpp"
+#include "../../utils/logger.hpp"
+#include "../../utils/message.hpp"
+#include "zmq_io.hpp"
 
-static std::string utc_iso_timestamp() {
+static std::sig_atomic_t g_stop = 0;
+static void on_sig(int)
+{
+    g_stop = 1;
+}
+
+static std::string utc_iso_timestamp()
+{
     std::time_t t = std::time(nullptr);
     std::tm tm_buf{};
 #ifdef _WIN32
@@ -36,101 +45,116 @@ static std::string utc_iso_timestamp() {
     return std::string(buf);
 }
 
-// Matches Python publish_detection():
 //   encode → S3 upload → WeaponMessage → Kafka → RabbitMQ
-static void publish_once(app::utils::AwsApiManager& /*life*/,
-                         app::utils::S3Client& s3,
-                         app::kafka::KafkaProducer& kafka,
-                         app::mqtt::RabbitMQClient* rmq,
+static void publish_once(app::utils::AwsApiManager& /*life*/, app::utils::S3Client& s3,
+                         app::kafka::KafkaProducer& kafka, app::mqtt::RabbitMQClient* rmq,
                          const app::core::orchestrators::ZmqWeaponOutPacket& pkt)
 {
     auto& cfg = app::config::AppConfig::getInstance();
     const std::string trace_id = app::core::orchestrators::make_trace_id();
 
-    try {
-        // Encode frame to JPEG (matches: cv2.imencode(".jpg", frame, [IMWRITE_JPEG_QUALITY, 95]))
+    try
+    {
+        // Encode frame to JPEG
         std::vector<uchar> jpg;
-        if (!cv::imencode(".jpg", pkt.annotated_frame, jpg, {cv::IMWRITE_JPEG_QUALITY, 95})) {
-            app::utils::Logger::error("[MsgGen] Failed to encode frame"
-                " trace_id=" + trace_id +
-                " camera_id=" + std::to_string(pkt.camera_id));
+        if (!cv::imencode(".jpg", pkt.annotated_frame, jpg, {cv::IMWRITE_JPEG_QUALITY, 95}))
+        {
+            app::utils::Logger::error(
+                "[MsgGen] Failed to encode frame"
+                " trace_id=" +
+                trace_id + " camera_id=" + std::to_string(pkt.camera_id));
             return;
         }
 
-        // S3 object key (matches: f"detections/{store_id}/{trace_id}_{confidence}.jpg")
+        // S3 object key
         std::ostringstream confs;
         confs << std::fixed << std::setprecision(4) << pkt.confidence;
-        const std::string obj = "detections/" + std::to_string(pkt.store_id) + "/" +
-                                trace_id + "_" + confs.str() + ".jpg";
+        const std::string obj = "detections/" + std::to_string(pkt.store_id) + "/" + trace_id +
+                                "_" + confs.str() + ".jpg";
 
-        // Upload to S3 (matches: s3_client.upload_bytes_and_get_direct_url)
+        // Upload to S3
         std::optional<std::string> s3_url;
-        try {
+        try
+        {
             s3_url = s3.upload_bytes_and_get_direct_url(jpg.data(), jpg.size(), obj, "image/jpeg");
-        } catch (const std::exception& e) {
+        } catch (const std::exception& e)
+        {
             app::utils::Logger::error(std::string("[MsgGen] Error uploading to S3: ") + e.what());
             std::exit(1);
         }
 
-        if (!s3_url || s3_url->empty()) {
-            app::utils::Logger::error("[MsgGen] Failed to upload to S3"
-                " trace_id=" + trace_id +
-                " camera_id=" + std::to_string(pkt.camera_id) +
+        if (!s3_url || s3_url->empty())
+        {
+            app::utils::Logger::error(
+                "[MsgGen] Failed to upload to S3"
+                " trace_id=" +
+                trace_id + " camera_id=" + std::to_string(pkt.camera_id) +
                 " store_id=" + std::to_string(pkt.store_id));
             return;
         }
 
-        // Build message (matches: WeaponMessage with detections=[{"class":"Weapon","confidence":...}])
+        // Build message
         app::utils::WeaponMessage msg;
-        msg.store_id       = pkt.store_id;
+        msg.store_id = pkt.store_id;
         msg.moksa_camera_id = pkt.camera_id;
-        msg.detections     = nlohmann::json::array();
+        msg.detections = nlohmann::json::array();
         nlohmann::json det;
-        det["class"]      = "Weapon";
+        det["class"] = "Weapon";
         det["confidence"] = pkt.confidence;
         msg.detections.push_back(det);
-        msg.gcs_uri       = *s3_url;
-        msg.trace_id      = trace_id;
-        msg.timestamp     = pkt.timestamp.empty() ? utc_iso_timestamp() : pkt.timestamp;
+        msg.gcs_uri = *s3_url;
+        msg.trace_id = trace_id;
+        msg.timestamp = pkt.timestamp.empty() ? utc_iso_timestamp() : pkt.timestamp;
         msg.model_version = "v1.0";
 
         // Publish to Kafka
-        try {
+        try
+        {
             kafka.produce(cfg.kafka_topic, msg);
-        } catch (const std::exception& e) {
-            app::utils::Logger::error(std::string("[MsgGen] Error publishing to Kafka: ") + e.what());
+        } catch (const std::exception& e)
+        {
+            app::utils::Logger::error(std::string("[MsgGen] Error publishing to Kafka: ") +
+                                      e.what());
             std::exit(1);
         }
 
-        // Publish to RabbitMQ (matches: queue_name = GENERIC_QUEUE_NAME or f"weapon_{store_id}")
-        if (rmq && rmq->is_connected()) {
-            try {
+        // Publish to RabbitMQ
+        if (rmq && rmq->is_connected())
+        {
+            try
+            {
                 const std::string queue = cfg.use_generic_queue
-                    ? cfg.generic_queue_name
-                    : ("weapon_" + std::to_string(pkt.store_id));
+                                              ? cfg.generic_queue_name
+                                              : ("weapon_" + std::to_string(pkt.store_id));
                 rmq->publish(queue, msg);
                 app::utils::Logger::info("Published to RabbitMQ");
-            } catch (const std::exception& e) {
-                app::utils::Logger::error(std::string("[MsgGen] Error publishing to RabbitMQ: ") + e.what());
+            } catch (const std::exception& e)
+            {
+                app::utils::Logger::error(std::string("[MsgGen] Error publishing to RabbitMQ: ") +
+                                          e.what());
                 std::exit(1);
             }
         }
 
-    } catch (const std::exception& e) {
-        app::utils::Logger::error("[MsgGen] Error publishing detection"
-            " trace_id=" + trace_id +
-            " camera_id=" + std::to_string(pkt.camera_id) +
-            " store_id=" + std::to_string(pkt.store_id) +
-            " error=" + e.what());
-    } catch (...) {
-        app::utils::Logger::error("[MsgGen] Error publishing detection"
-            " trace_id=" + trace_id +
-            " camera_id=" + std::to_string(pkt.camera_id) +
+    } catch (const std::exception& e)
+    {
+        app::utils::Logger::error(
+            "[MsgGen] Error publishing detection"
+            " trace_id=" +
+            trace_id + " camera_id=" + std::to_string(pkt.camera_id) +
+            " store_id=" + std::to_string(pkt.store_id) + " error=" + e.what());
+    } catch (...)
+    {
+        app::utils::Logger::error(
+            "[MsgGen] Error publishing detection"
+            " trace_id=" +
+            trace_id + " camera_id=" + std::to_string(pkt.camera_id) +
             " store_id=" + std::to_string(pkt.store_id) + " error=(unknown)");
     }
 }
 
-int main() {
+int main()
+{
     using namespace app::core::orchestrators;
     app::utils::Logger::set_level_from_env();
     auto& cfg = app::config::AppConfig::getInstance();
@@ -138,7 +162,7 @@ int main() {
     std::signal(SIGINT, on_sig);
     std::signal(SIGTERM, on_sig);
 
-    // Initialize producers (matches Python start_publishers())
+    // Initialize producers
     app::utils::AwsApiManager aws_life;
     app::utils::S3Client s3;
 
@@ -146,7 +170,7 @@ int main() {
     kafka.start_with_retry();
     app::utils::Logger::info("[MsgGen] Kafka producer connected");
 
-    // ZMQ receiver (matches Python __init__ connect)
+    // ZMQ receiver
     zmq::context_t ctx(1);
     zmq::socket_t pull(ctx, zmq::socket_type::pull);
     const std::string ep = "tcp://" + cfg.zmq_weapon_to_output_host + ":" +
@@ -154,46 +178,56 @@ int main() {
     pull.connect(ep);
     pull.set(zmq::sockopt::rcvhwm, 300);
     app::utils::Logger::info("Connected to port " + std::to_string(cfg.zmq_weapon_msg_gen_port) +
-        " for receiving from weapon orchestrator");
+                             " for receiving from weapon orchestrator");
     app::utils::Logger::info("Initialized");
 
     // Main loop — each detection dispatched as async task
-    // (matches Python asyncio.create_task(publish_detection(detection_data)))
     std::vector<std::future<void>> active_tasks;
-    while (!g_stop) {
+    while (!g_stop)
+    {
         // Retire finished tasks
-        active_tasks.erase(
-            std::remove_if(active_tasks.begin(), active_tasks.end(),
-                [](std::future<void>& f) {
-                    return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-                }),
-            active_tasks.end());
+        active_tasks.erase(std::remove_if(active_tasks.begin(), active_tasks.end(),
+                                          [](std::future<void>& f) {
+                                              return f.wait_for(std::chrono::seconds(0)) ==
+                                                     std::future_status::ready;
+                                          }),
+                           active_tasks.end());
 
         ZmqWeaponOutPacket pkt;
-        if (!zmq_recv_weapon_output(pull, pkt, zmq::recv_flags::dontwait)) {
+        if (!zmq_recv_weapon_output(pull, pkt, zmq::recv_flags::dontwait))
+        {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
-        active_tasks.push_back(
-            std::async(std::launch::async,
-                       [pkt = std::move(pkt), &aws_life, &s3, &kafka]() mutable {
-                           // Thread-local RabbitMQ connection (matches Python thread-local pattern)
-                           thread_local std::unique_ptr<app::mqtt::RabbitMQClient> tl_rmq;
-                           if (!tl_rmq) {
-                               auto& cfg = app::config::AppConfig::getInstance();
-                               if (!cfg.rabbitmq_host.empty()) {
-                                   tl_rmq = std::make_unique<app::mqtt::RabbitMQClient>();
-                                   tl_rmq->connect_with_retry();
-                                   app::utils::Logger::info("[MsgGen] RabbitMQ client connected");
-                               }
-                           }
-                           publish_once(aws_life, s3, kafka, tl_rmq.get(), pkt);
-                       }));
+        active_tasks.push_back(std::async(
+            std::launch::async, [pkt = std::move(pkt), &aws_life, &s3, &kafka]() mutable {
+                // Thread-local RabbitMQ connection
+                thread_local std::unique_ptr<app::mqtt::RabbitMQClient> tl_rmq;
+                if (!tl_rmq)
+                {
+                    auto& cfg = app::config::AppConfig::getInstance();
+                    if (!cfg.rabbitmq_host.empty())
+                    {
+                        tl_rmq = std::make_unique<app::mqtt::RabbitMQClient>();
+                        tl_rmq->connect_with_retry();
+                        app::utils::Logger::info("[MsgGen] RabbitMQ client connected");
+                    }
+                }
+                publish_once(aws_life, s3, kafka, tl_rmq.get(), pkt);
+            }));
     }
 
     // Drain in-flight tasks on shutdown
-    for (auto& f : active_tasks) { try { f.get(); } catch (...) {} }
+    for (auto& f : active_tasks)
+    {
+        try
+        {
+            f.get();
+        } catch (...)
+        {
+        }
+    }
     kafka.stop();
 
     return 0;

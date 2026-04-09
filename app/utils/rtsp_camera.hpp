@@ -1,22 +1,20 @@
+// RTSP camera interface — FPS-controlled read loop, thread-safe frame delivery.
+
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <atomic>
 #include <chrono>
 #include <deque>
 #include <mutex>
+#include <opencv2/opencv.hpp>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace app::utils {
 
-/**
- * Aligns with weapon-detection app/utils/rtsp_camera.py:
- * daemon-like bg thread, join(timeout=5) then release capture even if thread alive,
- * 1s bucket with per-frame timestamps (same structure as Python dict buffer).
- */
-class RTSPCamera {
+class RTSPCamera
+{
 public:
     explicit RTSPCamera(std::string url, int fps = 1, int buffer_size = 60);
     ~RTSPCamera();

@@ -1,8 +1,12 @@
+// RTSP camera implementation — wraps cv2::VideoCapture with FPS-based frame sampling.
+
 #include "rtsp_camera.hpp"
-#include "logger.hpp"
-#include <cstdlib>
+
 #include <cmath>
+#include <cstdlib>
 #include <stdexcept>
+
+#include "logger.hpp"
 
 namespace app::utils {
 
@@ -17,20 +21,23 @@ RTSPCamera::RTSPCamera(std::string url, int fps, int buffer_size)
     last_success_time_ = now;
 
     thread_finished_.store(false);
-    // Python: threading.Thread(..., daemon=True) — no portable daemon in C++;
     // timeout + detach in release() matches "do not block past join(5)" / process-exit semantics.
     thread_ = std::thread(&RTSPCamera::readFramesLoop, this);
 
-    Logger::info("[RTSPCamera] Initialized | url=" + url_ +
-                 " | target_fps=" + std::to_string(target_fps_) +
-                 " | buffer_size=" + std::to_string(buffer_size_));
+    Logger::info("[RTSPCamera] Initialized | url=" + url_ + " | target_fps=" +
+                 std::to_string(target_fps_) + " | buffer_size=" + std::to_string(buffer_size_));
 }
 
-RTSPCamera::~RTSPCamera() { release(); }
+RTSPCamera::~RTSPCamera()
+{
+    release();
+}
 
-void RTSPCamera::openCapture() {
+void RTSPCamera::openCapture()
+{
     const char* previous_ffmpeg_opts = std::getenv("OPENCV_FFMPEG_CAPTURE_OPTIONS");
-    if (!previous_ffmpeg_opts || std::string(previous_ffmpeg_opts).empty()) {
+    if (!previous_ffmpeg_opts || std::string(previous_ffmpeg_opts).empty())
+    {
 #ifdef _WIN32
         _putenv_s("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|stimeout;10000000");
 #else
@@ -42,13 +49,16 @@ void RTSPCamera::openCapture() {
         std::lock_guard<std::mutex> lk(cap_mtx_);
         if (cap_.isOpened())
             cap_.release();
-        if (!cap_.open(url_, cv::CAP_FFMPEG)) {
-            Logger::warning("[RTSPCamera] CAP_FFMPEG open failed, falling back to default backend | url=" +
-                            url_);
+        if (!cap_.open(url_, cv::CAP_FFMPEG))
+        {
+            Logger::warning(
+                "[RTSPCamera] CAP_FFMPEG open failed, falling back to default backend | url=" +
+                url_);
             cap_.open(url_);
         }
     }
-    if (!isOpened()) {
+    if (!isOpened())
+    {
         Logger::error("[RTSPCamera] Failed to open RTSP stream | url=" + url_);
         throw std::runtime_error("RTSP Camera Initialization Failed");
     }
@@ -57,19 +67,25 @@ void RTSPCamera::openCapture() {
                  " | backend=" + cap_.getBackendName());
 }
 
-std::vector<cv::Mat> RTSPCamera::sampleFramesToTargetFps(const std::vector<FrameWithTs>& frames) const {
-    if (frames.empty()) return {};
+std::vector<cv::Mat> RTSPCamera::sampleFramesToTargetFps(
+    const std::vector<FrameWithTs>& frames) const
+{
+    if (frames.empty())
+        return {};
     int total = static_cast<int>(frames.size());
     std::vector<cv::Mat> sampled;
-    if (total <= target_fps_) {
+    if (total <= target_fps_)
+    {
         sampled.reserve(static_cast<size_t>(total));
-        for (const auto& e : frames) sampled.push_back(e.frame.clone());
+        for (const auto& e : frames)
+            sampled.push_back(e.frame.clone());
         return sampled;
     }
 
     double sampling_interval = static_cast<double>(total) / static_cast<double>(target_fps_);
     sampled.reserve(static_cast<size_t>(target_fps_));
-    for (int i = 0; i < target_fps_; ++i) {
+    for (int i = 0; i < target_fps_; ++i)
+    {
         int frame_index = static_cast<int>(static_cast<double>(i) * sampling_interval);
         if (frame_index < total)
             sampled.push_back(frames[static_cast<size_t>(frame_index)].frame.clone());
@@ -77,9 +93,12 @@ std::vector<cv::Mat> RTSPCamera::sampleFramesToTargetFps(const std::vector<Frame
     return sampled;
 }
 
-void RTSPCamera::readFramesLoop() {
-    while (running_.load()) {
-        try {
+void RTSPCamera::readFramesLoop()
+{
+    while (running_.load())
+    {
+        try
+        {
             cv::Mat frame;
             bool ret;
             {
@@ -87,29 +106,34 @@ void RTSPCamera::readFramesLoop() {
                 ret = cap_.read(frame);
             }
 
-            if (!ret || frame.empty()) {
+            if (!ret || frame.empty())
+            {
                 consecutive_failures_++;
                 auto now = std::chrono::system_clock::now();
                 double time_since_last =
                     std::chrono::duration<double>(now - last_success_time_).count();
 
                 // 10 seconds without a good frame triggers reconnect
-                if (time_since_last >= 10.0) {
+                if (time_since_last >= 10.0)
+                {
                     Logger::warning(
                         "[RTSPCamera] RTSP stream stalled, attempting reconnect | url=" + url_ +
                         " | consecutive_failures=" + std::to_string(consecutive_failures_) +
                         " | time_since_last_success=" +
                         std::to_string(static_cast<int>(time_since_last)) + "s");
-                    try {
+                    try
+                    {
                         openCapture();
                         consecutive_failures_ = 0;
                         last_success_time_ = std::chrono::system_clock::now();
-                    } catch (const std::exception& e) {
+                    } catch (const std::exception& e)
+                    {
                         Logger::error("[RTSPCamera] Failed to reconnect | url=" + url_ +
                                       " | error=" + e.what());
                         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                     }
-                } else {
+                } else
+                {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 continue;
@@ -118,7 +142,7 @@ void RTSPCamera::readFramesLoop() {
             auto current_time = std::chrono::system_clock::now();
             last_success_time_ = current_time;
             consecutive_failures_ = 0;
-            
+
             FrameWithTs entry;
             entry.frame = frame.clone();
             entry.timestamp = current_time;
@@ -127,11 +151,13 @@ void RTSPCamera::readFramesLoop() {
 
             double elapsed =
                 std::chrono::duration<double>(current_time - buffer_start_time_).count();
-            if (elapsed >= 1.0) {
+            if (elapsed >= 1.0)
+            {
                 auto sampled = sampleFramesToTargetFps(frame_buffer_1s_);
                 {
                     std::lock_guard<std::mutex> lk(buffer_lock_);
-                    for (auto& f : sampled) {
+                    for (auto& f : sampled)
+                    {
                         frame_buffer_.push_back(std::move(f));
                         while (static_cast<int>(frame_buffer_.size()) > buffer_size_)
                             frame_buffer_.pop_front();
@@ -141,21 +167,23 @@ void RTSPCamera::readFramesLoop() {
 
                 double time_elapsed =
                     std::chrono::duration<double>(current_time - last_log_time_).count();
-                if (time_elapsed >= 1.0) {
+                if (time_elapsed >= 1.0)
+                {
                     double received_fps =
-                        time_elapsed > 0 ? static_cast<double>(frames_received_count_) / time_elapsed
-                                         : 0.0;
+                        time_elapsed > 0
+                            ? static_cast<double>(frames_received_count_) / time_elapsed
+                            : 0.0;
                     double sampled_fps =
                         time_elapsed > 0 ? static_cast<double>(frames_sampled_count_) / time_elapsed
                                          : 0.0;
-                    Logger::debug("[RTSPCamera] RTSP FPS stats | url=" + url_ +
-                                  " | received_fps=" +
-                                  std::to_string(std::round(received_fps * 10.0) / 10.0).substr(0, 5) +
-                                  " | frames_received=" + std::to_string(frames_received_count_) +
-                                  " | sampled_fps=" +
-                                  std::to_string(std::round(sampled_fps * 10.0) / 10.0).substr(0, 5) +
-                                  " | frames_sampled=" + std::to_string(frames_sampled_count_) +
-                                  " | target_fps=" + std::to_string(target_fps_));
+                    Logger::debug(
+                        "[RTSPCamera] RTSP FPS stats | url=" + url_ + " | received_fps=" +
+                        std::to_string(std::round(received_fps * 10.0) / 10.0).substr(0, 5) +
+                        " | frames_received=" + std::to_string(frames_received_count_) +
+                        " | sampled_fps=" +
+                        std::to_string(std::round(sampled_fps * 10.0) / 10.0).substr(0, 5) +
+                        " | frames_sampled=" + std::to_string(frames_sampled_count_) +
+                        " | target_fps=" + std::to_string(target_fps_));
                     frames_received_count_ = 0;
                     frames_sampled_count_ = 0;
                     last_log_time_ = current_time;
@@ -165,8 +193,10 @@ void RTSPCamera::readFramesLoop() {
                 buffer_start_time_ = current_time;
             }
 
-        } catch (const std::exception& e) {
-            if (running_.load()) {
+        } catch (const std::exception& e)
+        {
+            if (running_.load())
+            {
                 Logger::error("[RTSPCamera] Error reading frame in background thread | url=" +
                               url_ + " | error=" + e.what());
             }
@@ -176,21 +206,26 @@ void RTSPCamera::readFramesLoop() {
     thread_finished_.store(true);
 }
 
-bool RTSPCamera::read(cv::Mat& out) {
+bool RTSPCamera::read(cv::Mat& out)
+{
     std::lock_guard<std::mutex> lk(buffer_lock_);
-    if (frame_buffer_.empty()) return false;
+    if (frame_buffer_.empty())
+        return false;
     out = frame_buffer_.front().clone();
     frame_buffer_.pop_front();
     return true;
 }
 
-bool RTSPCamera::isOpened() const { 
+bool RTSPCamera::isOpened() const
+{
     std::lock_guard<std::mutex> lk(cap_mtx_);
-    return cap_.isOpened(); 
+    return cap_.isOpened();
 }
 
-void RTSPCamera::release() {
-    if (released_.exchange(true)) return;
+void RTSPCamera::release()
+{
+    if (released_.exchange(true))
+        return;
 
     running_.store(false);
 
@@ -198,12 +233,16 @@ void RTSPCamera::release() {
     while (!thread_finished_.load() && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    if (thread_.joinable()) {
-        if (thread_finished_.load()) {
+    if (thread_.joinable())
+    {
+        if (thread_finished_.load())
+        {
             thread_.join();
-        } else {
+        } else
+        {
             Logger::warning(
-                "[RTSPCamera] Background thread did not terminate, may cause resource leaks | url=" +
+                "[RTSPCamera] Background thread did not terminate, may cause resource leaks | "
+                "url=" +
                 url_);
             if (thread_finished_.load())
                 thread_.join();

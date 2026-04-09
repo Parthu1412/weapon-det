@@ -1,6 +1,5 @@
 // RabbitMQ client — publishes weapon notification messages to a queue via AMQP.
-// Uses SimpleAmqpClient and reconnects on stale connections, matching fall-cpp
-// rabbitmq.hpp structure and weapon-detection app/mqtt/rabitmq.py behaviour.
+// Uses SimpleAmqpClient and reconnects on stale connections
 
 #pragma once
 
@@ -34,8 +33,6 @@ namespace mqtt {
 
 namespace {
 
-// Python pika uses socket_timeout on the connection; SimpleAmqpClient has no direct equivalent,
-// so we set SO_RCVTIMEO/SO_SNDTIMEO on the broker socket after connect.
 void apply_amqp_socket_timeout(AmqpClient::Channel::ptr_t& channel, int timeout_sec)
 {
     if (!channel || timeout_sec <= 0)
@@ -45,12 +42,12 @@ void apply_amqp_socket_timeout(AmqpClient::Channel::ptr_t& channel, int timeout_
         return;
 #ifdef _WIN32
     DWORD ms = static_cast<DWORD>(timeout_sec) * 1000u;
-    setsockopt(static_cast<SOCKET>(fd), SOL_SOCKET, SO_RCVTIMEO,
-               reinterpret_cast<const char*>(&ms), static_cast<int>(sizeof(ms)));
-    setsockopt(static_cast<SOCKET>(fd), SOL_SOCKET, SO_SNDTIMEO,
-               reinterpret_cast<const char*>(&ms), static_cast<int>(sizeof(ms)));
+    setsockopt(static_cast<SOCKET>(fd), SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&ms),
+               static_cast<int>(sizeof(ms)));
+    setsockopt(static_cast<SOCKET>(fd), SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&ms),
+               static_cast<int>(sizeof(ms)));
 #else
-    struct timeval tv {};
+    struct timeval tv{};
     tv.tv_sec = timeout_sec;
     tv.tv_usec = 0;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -87,9 +84,7 @@ public:
                 const char* ca_path = "/etc/ssl/certs/ca-certificates.crt";
                 channel_ = AmqpClient::Channel::CreateSecure(
                     ca_path, config.rabbitmq_host, "", "", config.rabbitmq_port,
-                    config.rabbitmq_user, config.rabbitmq_pass, "/", 131072,
-                    false  // verify_hostname_and_peer = false (matches Python CERT_NONE)
-                );
+                    config.rabbitmq_user, config.rabbitmq_pass, "/", 131072, false);
             } catch (const std::exception& e)
             {
                 std::string err(e.what());

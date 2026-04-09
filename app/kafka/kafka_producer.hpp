@@ -1,4 +1,6 @@
-// Kafka producer — matches fall-cpp layout: MSK/OAUTHBEARER, background poll thread, mutex on produce.
+// Kafka Producer - interface for KafkaProducer.
+// Wraps librdkafka Producer with MSK IAM OAUTHBEARER token refresh,
+// a background poll thread for async delivery reports, and a mutex-guarded produce().
 
 #pragma once
 

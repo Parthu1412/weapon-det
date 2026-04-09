@@ -1,10 +1,12 @@
+// ZMQ I/O helpers — interface for weapon pipeline inter-process communication.
+// Declares ZmqWeaponFramePacket, ZmqWeaponOutPacket, send/recv functions, and make_trace_id().
 #pragma once
 
-#include <zmq.hpp>
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
+#include <zmq.hpp>
 
 #include "../../utils/detection_json.hpp"
 
