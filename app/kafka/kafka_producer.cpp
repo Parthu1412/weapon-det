@@ -25,11 +25,19 @@ class DeliveryReportCbImpl : public RdKafka::DeliveryReportCb
 public:
     void dr_cb(RdKafka::Message& msg) override
     {
-        if (msg.err() != RdKafka::ERR_NO_ERROR)
+        if (msg.err() != RdKafka::ERR_NO_ERROR) {
             app::utils::Logger::error("[Kafka] Delivery failed: " + msg.errstr());
-        else
-            app::utils::Logger::info("[Kafka] Delivered to " + msg.topic_name() + " [" +
-                                     std::to_string(msg.partition()) + "]");
+        } else {
+            // Matches Python: logger.info("Message sent to Kafka", extra={topic, trace_id, partition, offset})
+            const std::string trace_id = (msg.key() && !msg.key()->empty())
+                ? *msg.key()
+                : "";
+            app::utils::Logger::info("Message sent to Kafka"
+                " | topic=" + msg.topic_name() +
+                " | trace_id=" + trace_id +
+                " | partition=" + std::to_string(msg.partition()) +
+                " | offset=" + std::to_string(msg.offset()));
+        }
     }
 };
 
@@ -191,6 +199,13 @@ void KafkaProducer::produce(const std::string& topic, const app::utils::WeaponMe
         app::utils::Logger::error("[Kafka] produce: not started");
         std::exit(1);
     }
+    // Matches Python: logger.info("Sending message to Kafka", extra={topic, trace_id, camera_id, store_id})
+    app::utils::Logger::info("Sending message to Kafka"
+        " | topic=" + topic +
+        " | trace_id=" + message.trace_id +
+        " | camera_id=" + std::to_string(message.moksa_camera_id) +
+        " | store_id=" + std::to_string(message.store_id));
+
     nlohmann::json j;
     app::utils::to_json(j, message);
     std::string payload = j.dump();

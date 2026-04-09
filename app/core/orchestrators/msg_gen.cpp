@@ -97,7 +97,6 @@ static void publish_once(app::utils::AwsApiManager& /*life*/,
         // Publish to Kafka
         try {
             kafka.produce(cfg.kafka_topic, msg);
-            app::utils::Logger::info("Published to Kafka");
         } catch (const std::exception& e) {
             app::utils::Logger::error(std::string("[MsgGen] Error publishing to Kafka: ") + e.what());
             std::exit(1);

@@ -16,16 +16,18 @@ struct WeaponMessage {
     std::string model_version = "v1.0";
 };
 
+// Use ordered_json to preserve insertion order — matches Python json.dumps dict order:
+// store_id → moksa_camera_id → detections → gcs_uri → trace_id → timestamp → model_version
 inline void to_json(nlohmann::json& j, const WeaponMessage& m) {
-    j = nlohmann::json{
-        {"store_id", m.store_id},
-        {"moksa_camera_id", m.moksa_camera_id},
-        {"detections", m.detections},
-        {"gcs_uri", m.gcs_uri},
-        {"trace_id", m.trace_id},
-        {"timestamp", m.timestamp},
-        {"model_version", m.model_version},
-    };
+    nlohmann::ordered_json oj;
+    oj["store_id"]        = m.store_id;
+    oj["moksa_camera_id"] = m.moksa_camera_id;
+    oj["detections"]      = m.detections;
+    oj["gcs_uri"]         = m.gcs_uri;
+    oj["trace_id"]        = m.trace_id;
+    oj["timestamp"]       = m.timestamp;
+    oj["model_version"]   = m.model_version;
+    j = oj;
 }
 
 } // namespace utils
