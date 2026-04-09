@@ -38,6 +38,7 @@ public:
     std::string weapon_model_s3_key = "models/checkpoint_best_total.pth";
     float confidence_threshold = 0.5f;
     float iou_threshold = 0.1f;
+    float weapon_nms_iou_threshold = 0.5f;
     float person_bbox_expansion_percent = 0.2f;
 
     std::string person_detection_model = "yolo11n.pt";

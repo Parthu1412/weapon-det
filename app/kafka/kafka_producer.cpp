@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <thread>
@@ -208,8 +209,7 @@ void KafkaProducer::produce(const std::string& topic, const app::utils::WeaponMe
         " | camera_id=" + std::to_string(message.moksa_camera_id) +
         " | store_id=" + std::to_string(message.store_id));
 
-    nlohmann::json j;
-    app::utils::to_json(j, message);
+    nlohmann::ordered_json j = app::utils::to_ordered_json(message);
     std::string payload = j.dump();
     const std::string& key = message.trace_id;
 

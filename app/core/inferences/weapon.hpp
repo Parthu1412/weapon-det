@@ -22,8 +22,8 @@ namespace app::core::inferences {
 class WeaponInference
 {
 public:
-    WeaponInference(const std::string& onnx_path, float conf_thresh, int input_h = 616,
-                    int input_w = 616, float nms_iou_thresh = 0.5f);
+    WeaponInference(const std::string& onnx_path, float conf_thresh, int input_h = 560,
+                    int input_w = 560, float nms_iou_thresh = 0.5f);
 
     std::pair<std::vector<std::vector<int>>, float> detect(const cv::Mat& frame);
 
@@ -46,8 +46,8 @@ private:
 class WeaponModel
 {
 public:
-    explicit WeaponModel(const std::string& onnx_path, float conf_thresh, int input_h = 616,
-                         int input_w = 616, float nms_iou_thresh = 0.5f)
+    explicit WeaponModel(const std::string& onnx_path, float conf_thresh, int input_h = 560,
+                         int input_w = 560, float nms_iou_thresh = 0.5f)
         : impl_(onnx_path, conf_thresh, input_h, input_w, nms_iou_thresh)
     {
     }

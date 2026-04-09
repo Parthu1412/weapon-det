@@ -14,7 +14,8 @@ namespace app::core::services {
 
 WeaponService::WeaponService()
     : weapon_(app::config::AppConfig::getInstance().weapon_model_path,
-              app::config::AppConfig::getInstance().confidence_threshold)
+              app::config::AppConfig::getInstance().confidence_threshold, 560, 560,
+              app::config::AppConfig::getInstance().weapon_nms_iou_threshold)
 {
 }
 

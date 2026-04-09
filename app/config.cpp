@@ -132,10 +132,11 @@ void AppConfig::load()
     buffer_size = getenv_int("BUFFER_SIZE", 2);
     fps = getenv_int("FPS", 1);
 
-    weapon_model_path = getenv_str("MODEL_PATH", "inference_model.onnx");
+    weapon_model_path = getenv_str("MODEL_PATH", "model/inference_model.onnx");
     weapon_model_s3_key = getenv_str("MODEL_S3_KEY", weapon_model_s3_key);
-    confidence_threshold = getenv_float("CONFIDENCE_THRESHOLD", 0.2f);
-    iou_threshold = getenv_float("IOU_THRESHOLD", 0.0f);
+    confidence_threshold = getenv_float("CONFIDENCE_THRESHOLD", 0.5f);
+    iou_threshold = getenv_float("IOU_THRESHOLD", 0.1f);
+    weapon_nms_iou_threshold = getenv_float("WEAPON_NMS_IOU_THRESHOLD", 0.5f);
     person_bbox_expansion_percent = getenv_float("PERSON_BBOX_EXPANSION_PERCENT", 0.2f);
 
     person_detection_model = getenv_str("PERSON_DETECTION_MODEL", person_detection_model);
